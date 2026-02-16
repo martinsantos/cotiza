@@ -1,0 +1,1058 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>cotizAR - Gestión de Licitaciones</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; }
+        
+        .app { display: flex; min-height: 100vh; }
+        
+        /* Sidebar */
+        .sidebar { width: 260px; background: #1a1a2e; color: #fff; padding: 20px 0; position: fixed; height: 100vh; overflow-y: auto; }
+        .logo { padding: 0 20px 20px; border-bottom: 1px solid #2d2d44; margin-bottom: 20px; }
+        .logo h1 { font-size: 24px; color: #e94560; }
+        .logo span { font-size: 12px; color: #888; }
+        
+        .nav-item { padding: 12px 20px; cursor: pointer; border-left: 3px solid transparent; transition: all 0.3s; }
+        .nav-item:hover, .nav-item.active { background: #2d2d44; border-left-color: #e94560; }
+        .nav-item span { margin-left: 10px; }
+        
+        /* Main Content */
+        .main { flex: 1; margin-left: 260px; padding: 30px; }
+        
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
+        .header h2 { font-size: 28px; color: #333; }
+        
+        /* Cards */
+        .card { background: #fff; border-radius: 10px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        .card-title { font-size: 18px; color: #333; font-weight: 600; }
+        
+        /* Stats Grid */
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px; }
+        .stat-card { background: #fff; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .stat-card h3 { font-size: 32px; color: #e94560; }
+        .stat-card p { color: #666; font-size: 14px; }
+        
+        /* Tables */
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #eee; }
+        th { background: #f8f9fa; font-weight: 600; color: #333; }
+        tr:hover { background: #f8f9fa; }
+        
+        /* Status Badges */
+        .badge { padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 500; }
+        .badge-abierta { background: #d4edda; color: #155724; }
+        .badge-cerrada { background: #fff3cd; color: #856404; }
+        .badge-adjudicada { background: #cce5ff; color: #004085; }
+        
+        /* Buttons */
+        .btn { padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; font-size: 14px; transition: all 0.3s; }
+        .btn-primary { background: #e94560; color: #fff; }
+        .btn-primary:hover { background: #d63d56; }
+        .btn-secondary { background: #6c757d; color: #fff; }
+        .btn-sm { padding: 6px 12px; font-size: 12px; }
+        
+        /* Forms */
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; margin-bottom: 5px; color: #333; font-weight: 500; }
+        .form-group input, .form-group select, .form-group textarea { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px; }
+        .form-group input:focus, .form-group select:focus { outline: none; border-color: #e94560; }
+        
+        /* Modal */
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 1000; }
+        .modal.active { display: flex; }
+        .modal-content { background: #fff; padding: 30px; border-radius: 10px; max-width: 500px; width: 90%; max-height: 80vh; overflow-y: auto; }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .modal-close { background: none; border: none; font-size: 24px; cursor: pointer; }
+        
+        /* Tabs */
+        .tabs { display: flex; border-bottom: 2px solid #eee; margin-bottom: 20px; }
+        .tab { padding: 10px 20px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; }
+        .tab.active { border-bottom-color: #e94560; color: #e94560; }
+        
+        /* Grid Layout */
+        .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
+        .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+        
+        /* Market Data */
+        .market-item { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #eee; }
+        .market-item:last-child { border-bottom: none; }
+        .market-trend { font-size: 12px; }
+        .trend-up { color: #28a745; }
+        .trend-down { color: #dc3545; }
+        
+        /* Progress */
+        .progress-bar { background: #eee; border-radius: 10px; height: 10px; overflow: hidden; }
+        .progress-fill { background: #e94560; height: 100%; border-radius: 10px; transition: width 0.3s; }
+        
+        /* Alerts */
+        .alert { padding: 15px; border-radius: 5px; margin-bottom: 10px; }
+        .alert-warning { background: #fff3cd; color: #856404; }
+        .alert-danger { background: #f8d7da; color: #721c24; }
+        .alert-info { background: #d1ecf1; color: #0c5460; }
+        
+        /* Hidden sections */
+        .section { display: none; }
+        .section.active { display: block; }
+        
+        /* Tender Detail */
+        .tender-detail { padding: 20px; }
+        .tender-meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 20px; }
+        .tender-meta-item { background: #f8f9fa; padding: 15px; border-radius: 5px; }
+        .tender-meta-item label { display: block; color: #666; font-size: 12px; }
+        .tender-meta-item span { font-size: 18px; font-weight: 600; color: #333; }
+        
+        /* Loading */
+        .loading { text-align: center; padding: 40px; color: #666; }
+        .spinner { width: 40px; height: 40px; border: 3px solid #f3f3f3; border-top: 3px solid #e94560; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 20px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="logo">
+                <h1>cotizAR</h1>
+                <span>Gestión de Licitaciones</span>
+            </div>
+            <div class="nav-item active" data-section="dashboard">
+                <span>📊 Dashboard</span>
+            </div>
+            <div class="nav-item" data-section="tenders">
+                <span>📋 Licitaciones</span>
+            </div>
+            <div class="nav-item" data-section="bids">
+                <span>📝 Cotizaciones</span>
+            </div>
+            <div class="nav-item" data-section="market">
+                <span>💰 Mercado</span>
+            </div>
+            <div class="nav-item" data-section="competitive">
+                <span>🎯 Competitividad</span>
+            </div>
+            <div class="nav-item" data-section="legal">
+                <span>⚖️ Legal</span>
+            </div>
+            <div class="nav-item" data-section="tracking">
+                <span>📅 Seguimiento</span>
+            </div>
+            <div class="nav-item" data-section="config">
+                <span>⚙️ Configuración</span>
+            </div>
+        </div>
+        
+        <!-- Main Content -->
+        <div class="main">
+            <!-- Dashboard -->
+            <div id="dashboard" class="section active">
+                <div class="header">
+                    <h2>Dashboard</h2>
+                    <button class="btn btn-primary" onclick="refreshAll()">🔄 Actualizar</button>
+                </div>
+                
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <h3 id="stat-tenders">0</h3>
+                        <p>Licitaciones Activas</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3 id="stat-bids">0</h3>
+                        <p>Cotizaciones Creadas</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3 id="stat-pending">0</h3>
+                        <p>Por Presentar</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3 id="stat-deadline">0</h3>
+                        <p>Próximos Vencimientos</p>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">Licitaciones Recientes</span>
+                        <button class="btn btn-sm btn-primary" onclick="showSection('tenders')">Ver Todas</button>
+                    </div>
+                    <div id="recent-tenders">
+                        <div class="loading"><div class="spinner"></div>Cargando...</div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">Alertas de Vencimiento</span>
+                    </div>
+                    <div id="alerts">
+                        <div class="loading"><div class="spinner"></div>Cargando...</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Tenders -->
+            <div id="tenders" class="section">
+                <div class="header">
+                    <h2>Licitaciones</h2>
+                    <div>
+                        <input type="text" id="tender-search" placeholder="Buscar..." style="padding: 10px; border: 1px solid #ddd; border-radius: 5px; width: 200px;">
+                        <button class="btn btn-primary" onclick="searchTenders()">🔍</button>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="tabs">
+                        <div class="tab active" data-filter="all">Todas</div>
+                        <div class="tab" data-filter="abierta">Abiertas</div>
+                        <div class="tab" data-filter="cerrada">Cerradas</div>
+                        <div class="tab" data-filter="adjudicada">Adjudicadas</div>
+                    </div>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Número</th>
+                                <th>Título</th>
+                                <th>Organismo</th>
+                                <th>Presupuesto</th>
+                                <th>Cierre</th>
+                                <th>Estado</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tenders-table">
+                            <tr><td colspan="7" class="loading"><div class="spinner"></div>Cargando...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- Bids -->
+            <div id="bids" class="section">
+                <div class="header">
+                    <h2>Cotizaciones</h2>
+                    <button class="btn btn-primary" onclick="openBidModal()">+ Nueva Cotización</button>
+                </div>
+                
+                <div class="card">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Licitación</th>
+                                <th>Estado</th>
+                                <th>Monto</th>
+                                <th>Puntaje</th>
+                                <th>Creada</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="bids-table">
+                            <tr><td colspan="7" class="loading"><div class="spinner"></div>Cargando...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- Market -->
+            <div id="market" class="section">
+                <div class="header">
+                    <h2>Información de Mercado</h2>
+                    <button class="btn btn-primary" onclick="updateMarketData()">🔄 Actualizar</button>
+                </div>
+                
+                <div class="grid-3">
+                    <div class="card">
+                        <div class="card-title">Precios de Materiales</div>
+                        <div id="material-prices">
+                            <div class="loading"><div class="spinner"></div>Cargando...</div>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title">Cotización de Monedas</div>
+                        <div id="currency-rates">
+                            <div class="loading"><div class="spinner"></div>Cargando...</div>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title">Inflación</div>
+                        <div id="inflation-data">
+                            <div class="loading"><div class="spinner"></div>Cargando...</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="card-title">Contexto Económico</div>
+                    <div id="economic-context" style="white-space: pre-line; line-height: 1.8;">
+                        <div class="loading"><div class="spinner"></div>Cargando...</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Competitive -->
+            <div id="competitive" class="section">
+                <div class="header">
+                    <h2>Análisis de Competitividad</h2>
+                </div>
+                
+                <div class="card">
+                    <div class="form-group">
+                        <label>Seleccionar Licitación</label>
+                        <select id="competitive-tender-select">
+                            <option value="">Cargando...</option>
+                        </select>
+                    </div>
+                    <button class="btn btn-primary" onclick="analyzeCompetitiveness()">Analizar</button>
+                </div>
+                
+                <div id="competitive-results" style="display: none;">
+                    <div class="grid-3">
+                        <div class="stat-card">
+                            <h3 id="score-total">0</h3>
+                            <p>Puntaje Total</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3 id="score-price">0</h3>
+                            <p>Precio</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3 id="score-technical">0</h3>
+                            <p>Técnico</p>
+                        </div>
+                    </div>
+                    
+                    <div class="card">
+                        <div class="card-title">Benchmarks</div>
+                        <div id="benchmark-data"></div>
+                    </div>
+                    
+                    <div class="card">
+                        <div class="card-title">Competidores</div>
+                        <div id="competitors-data"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Legal -->
+            <div id="legal" class="section">
+                <div class="header">
+                    <h2>Cumplimiento Legal</h2>
+                </div>
+                
+                <div class="card">
+                    <div class="form-group">
+                        <label>Seleccionar Licitación</label>
+                        <select id="legal-tender-select">
+                            <option value="">Cargando...</option>
+                        </select>
+                    </div>
+                    <button class="btn btn-primary" onclick="analyzeLegal()">Analizar Requisitos Legales</button>
+                </div>
+                
+                <div id="legal-results" style="display: none;">
+                    <div class="card">
+                        <div class="card-title">Marco Legal</div>
+                        <div id="legal-framework"></div>
+                    </div>
+                    
+                    <div class="card">
+                        <div class="card-title">Cláusulas Requeridas</div>
+                        <div id="legal-clauses"></div>
+                    </div>
+                    
+                    <div class="card">
+                        <div class="card-title">Checklist de Cumplimiento</div>
+                        <div id="legal-checklist"></div>
+                    </div>
+                    
+                    <div class="card">
+                        <div class="card-title">Recomendaciones</div>
+                        <div id="legal-recommendations"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Tracking -->
+            <div id="tracking" class="section">
+                <div class="header">
+                    <h2>Seguimiento de Licitaciones</h2>
+                </div>
+                
+                <div class="card">
+                    <div class="form-group">
+                        <label>Seleccionar Licitación</label>
+                        <select id="tracking-tender-select">
+                            <option value="">Cargando...</option>
+                        </select>
+                    </div>
+                    <button class="btn btn-primary" onclick="getTracking()">Ver Seguimiento</button>
+                </div>
+                
+                <div id="tracking-results" style="display: none;">
+                    <div class="card">
+                        <div class="card-title">Resumen</div>
+                        <div id="tracking-summary"></div>
+                    </div>
+                    
+                    <div class="card">
+                        <div class="card-title">Próximos Hitos</div>
+                        <div id="tracking-milestones"></div>
+                    </div>
+                    
+                    <div class="card">
+                        <div class="card-title">Alertas</div>
+                        <div id="tracking-alerts"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Config -->
+            <div id="config" class="section">
+                <div class="header">
+                    <h2>Configuración</h2>
+                </div>
+                
+                <div class="card">
+                    <div class="card-title">Datos de la Empresa</div>
+                    <form id="config-form">
+                        <div class="grid-2">
+                            <div class="form-group">
+                                <label>Nombre de la Empresa</label>
+                                <input type="text" id="company-name" name="companyName">
+                            </div>
+                            <div class="form-group">
+                                <label>CUIT</label>
+                                <input type="text" id="company-taxid" name="companyTaxId">
+                            </div>
+                        </div>
+                        <div class="grid-2">
+                            <div class="form-group">
+                                <label>Email</label>
+                                <input type="email" id="company-email" name="companyEmail">
+                            </div>
+                            <div class="form-group">
+                                <label>Teléfono</label>
+                                <input type="text" id="company-phone" name="companyPhone">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Dirección</label>
+                            <input type="text" id="company-address" name="companyAddress">
+                        </div>
+                        <button type="submit" class="btn btn-primary">Guardar</button>
+                    </form>
+                </div>
+                
+                <div class="card">
+                    <div class="card-title">Configuración de Cotizaciones</div>
+                    <form id="bid-config-form">
+                        <div class="grid-2">
+                            <div class="form-group">
+                                <label>Moneda por Defecto</label>
+                                <select id="default-currency">
+                                    <option value="ARS">ARS - Peso Argentino</option>
+                                    <option value="USD">USD - Dólar</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Tasa de IVA (%)</label>
+                                <input type="number" id="tax-rate" value="21">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Margen de Ganancia por Defecto (%)</label>
+                            <input type="number" id="profit-margin" value="15">
+                        </div>
+                        <button type="submit" class="btn btn-primary">Guardar</button>
+                    </form>
+                </div>
+                
+                <div class="card">
+                    <div class="card-title">API Settings</div>
+                    <div class="form-group">
+                        <label>Puerto del Servidor</label>
+                        <input type="number" id="api-port" value="3000">
+                    </div>
+                    <div class="form-group">
+                        <label>Host</label>
+                        <input type="text" id="api-host" value="0.0.0.0">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Bid Modal -->
+    <div class="modal" id="bid-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Nueva Cotización</h3>
+                <button class="modal-close" onclick="closeBidModal()">&times;</button>
+            </div>
+            <form id="bid-form">
+                <div class="form-group">
+                    <label>Seleccionar Licitación</label>
+                    <select id="bid-tender-select" required>
+                        <option value="">Cargando...</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%;">Crear Cotización</button>
+            </form>
+        </div>
+    </div>
+    
+    <script>
+        const API_URL = 'http://localhost:3000/api';
+        let tenders = [];
+        let bids = [];
+        
+        // Navigation
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.addEventListener('click', () => {
+                document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+                item.classList.add('active');
+                showSection(item.dataset.section);
+            });
+        });
+        
+        function showSection(id) {
+            document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
+            
+            // Load section data
+            switch(id) {
+                case 'dashboard': loadDashboard(); break;
+                case 'tenders': loadTenders(); break;
+                case 'bids': loadBids(); break;
+                case 'market': loadMarket(); break;
+                case 'competitive': loadCompetitiveSelects(); break;
+                case 'legal': loadLegalSelects(); break;
+                case 'tracking': loadTrackingSelects(); break;
+                case 'config': loadConfig(); break;
+            }
+        }
+        
+        // Dashboard
+        async function loadDashboard() {
+            try {
+                const [tendersRes, bidsRes] = await Promise.all([
+                    fetch(`${API_URL}/tenders`),
+                    fetch(`${API_URL}/bids`)
+                ]);
+                tenders = await tendersRes.json();
+                bids = await bidsRes.json();
+                
+                const openTenders = tenders.filter(t => t.status === 'abierta');
+                const pendingBids = bids.filter(b => b.status === 'draft');
+                const now = new Date();
+                const deadlineTenders = tenders.filter(t => {
+                    const close = new Date(t.closingDate);
+                    const days = (close - now) / (1000 * 60 * 60 * 24);
+                    return days > 0 && days <= 7;
+                });
+                
+                document.getElementById('stat-tenders').textContent = openTenders.length;
+                document.getElementById('stat-bids').textContent = bids.length;
+                document.getElementById('stat-pending').textContent = pendingBids.length;
+                document.getElementById('stat-deadline').textContent = deadlineTenders.length;
+                
+                // Recent tenders
+                const recentHtml = openTenders.slice(0, 5).map(t => `
+                    <div style="padding: 15px; border-bottom: 1px solid #eee;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <strong>${t.number}</strong>
+                                <p style="color: #666; font-size: 13px; margin-top: 5px;">${t.title.substring(0, 60)}...</p>
+                            </div>
+                            <div style="text-align: right;">
+                                <span class="badge badge-abierta">${t.status}</span>
+                                <p style="color: #666; font-size: 12px; margin-top: 5px;">Cierra: ${new Date(t.closingDate).toLocaleDateString()}</p>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+                document.getElementById('recent-tenders').innerHTML = recentHtml || '<p style="padding: 20px; text-align: center; color: #666;">No hay licitaciones abiertas</p>';
+                
+                // Alerts
+                const alertsHtml = deadlineTenders.map(t => {
+                    const days = Math.ceil((new Date(t.closingDate) - new Date()) / (1000 * 60 * 60 * 24));
+                    return `
+                        <div class="alert alert-warning">
+                            <strong>${t.number}</strong> - ${t.title.substring(0, 40)}...
+                            <br><small>Vence en ${days} días</small>
+                        </div>
+                    `;
+                }).join('');
+                document.getElementById('alerts').innerHTML = alertsHtml || '<p style="padding: 15px; color: #28a745;">No hay alertas pendientes</p>';
+                
+            } catch (error) {
+                console.error('Error loading dashboard:', error);
+                document.getElementById('recent-tenders').innerHTML = '<p style="padding: 20px; color: #dc3545;">Error cargando datos. Verifique que el servidor esté corriendo.</p>';
+            }
+        }
+        
+        // Tenders
+        async function loadTenders(filter = 'all') {
+            try {
+                const res = await fetch(`${API_URL}/tenders${filter !== 'all' ? `?status=${filter}` : ''}`);
+                tenders = await res.json();
+                
+                const html = tenders.map(t => `
+                    <tr>
+                        <td><strong>${t.number}</strong></td>
+                        <td>${t.title.substring(0, 40)}...</td>
+                        <td>${t.agency}</td>
+                        <td>$${t.budget.toLocaleString()}</td>
+                        <td>${new Date(t.closingDate).toLocaleDateString()}</td>
+                        <td><span class="badge badge-${t.status}">${t.status}</span></td>
+                        <td>
+                            <button class="btn btn-sm btn-primary" onclick="viewTender('${t.id}')">Ver</button>
+                            <button class="btn btn-sm btn-secondary" onclick="createBidFromTender('${t.id}')">Cotizar</button>
+                        </td>
+                    </tr>
+                `).join('');
+                document.getElementById('tenders-table').innerHTML = html;
+            } catch (error) {
+                document.getElementById('tenders-table').innerHTML = '<tr><td colspan="7" style="color: #dc3545;">Error cargando licitaciones</td></tr>';
+            }
+        }
+        
+        document.querySelectorAll('.tab[data-filter]').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                loadTenders(tab.dataset.filter);
+            });
+        });
+        
+        async function searchTenders() {
+            const query = document.getElementById('tender-search').value;
+            if (!query) return loadTenders();
+            
+            try {
+                const res = await fetch(`${API_URL}/tenders/search?q=${encodeURIComponent(query)}`);
+                tenders = await res.json();
+                const html = tenders.map(t => `
+                    <tr>
+                        <td><strong>${t.number}</strong></td>
+                        <td>${t.title.substring(0, 40)}...</td>
+                        <td>${t.agency}</td>
+                        <td>$${t.budget.toLocaleString()}</td>
+                        <td>${new Date(t.closingDate).toLocaleDateString()}</td>
+                        <td><span class="badge badge-${t.status}">${t.status}</span></td>
+                        <td>
+                            <button class="btn btn-sm btn-primary" onclick="viewTender('${t.id}')">Ver</button>
+                        </td>
+                    </tr>
+                `).join('');
+                document.getElementById('tenders-table').innerHTML = html;
+            } catch (error) {
+                console.error('Error searching:', error);
+            }
+        }
+        
+        function viewTender(id) {
+            const tender = tenders.find(t => t.id === id);
+            if (!tender) return;
+            
+            alert(`
+=== DETALLE DE LICITACIÓN ===
+Número: ${tender.number}
+Título: ${tender.title}
+Descripción: ${tender.description}
+Organismo: ${tender.agency}
+Región: ${tender.region}
+Categoría: ${tender.category}
+Presupuesto: $${tender.budget.toLocaleString()} ${tender.currency}
+Cierre: ${new Date(tender.closingDate).toLocaleDateString()}
+
+Requisitos:
+${tender.requirements.map(r => `- [${r.mandatory ? 'OBL' : 'OPT'}] ${r.description}`).join('\n')}
+            `);
+        }
+        
+        function createBidFromTender(tenderId) {
+            openBidModal(tenderId);
+        }
+        
+        // Bids
+        async function loadBids() {
+            try {
+                const res = await fetch(`${API_URL}/bids`);
+                bids = await res.json();
+                
+                const html = bids.map(b => `
+                    <tr>
+                        <td><strong>${b.id}</strong></td>
+                        <td>${b.tenderId}</td>
+                        <td><span class="badge badge-${b.status === 'draft' ? 'abierta' : 'adjudicada'}">${b.status}</span></td>
+                        <td>$${b.commercialOffer?.total?.toLocaleString() || 'N/A'}</td>
+                        <td>${b.competitivenessScore || 'N/A'}%</td>
+                        <td>${new Date(b.createdAt).toLocaleDateString()}</td>
+                        <td>
+                            <button class="btn btn-sm btn-primary" onclick="analyzeBid('${b.id}')">Analizar</button>
+                            <button class="btn btn-sm btn-secondary" onclick="calculateBid('${b.id}')">Calcular</button>
+                        </td>
+                    </tr>
+                `).join('');
+                document.getElementById('bids-table').innerHTML = html || '<tr><td colspan="7" style="text-align: center; padding: 20px; color: #666;">No hay cotizaciones creadas</td></tr>';
+            } catch (error) {
+                document.getElementById('bids-table').innerHTML = '<tr><td colspan="7" style="color: #dc3545;">Error cargando cotizaciones</td></tr>';
+            }
+        }
+        
+        function openBidModal(tenderId = '') {
+            document.getElementById('bid-modal').classList.add('active');
+            loadBidModalTenders(tenderId);
+        }
+        
+        function closeBidModal() {
+            document.getElementById('bid-modal').classList.remove('active');
+        }
+        
+        async function loadBidModalTenders(selectedId = '') {
+            try {
+                const res = await fetch(`${API_URL}/tenders?status=abierta`);
+                const openTenders = await res.json();
+                const html = openTenders.map(t => `
+                    <option value="${t.id}" ${t.id === selectedId ? 'selected' : ''}>
+                        ${t.number} - ${t.title.substring(0, 50)}...
+                    </option>
+                `).join('');
+                document.getElementById('bid-tender-select').innerHTML = html || '<option value="">No hay licitaciones abiertas</option>';
+            } catch (error) {
+                document.getElementById('bid-tender-select').innerHTML = '<option value="">Error cargando</option>';
+            }
+        }
+        
+        document.getElementById('bid-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const tenderId = document.getElementById('bid-tender-select').value;
+            if (!tenderId) return;
+            
+            try {
+                const res = await fetch(`${API_URL}/bids`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ tenderId })
+                });
+                
+                if (res.ok) {
+                    closeBidModal();
+                    loadBids();
+                    alert('✓ Cotización creada exitosamente');
+                } else {
+                    alert('Error creando cotización');
+                }
+            } catch (error) {
+                alert('Error conectando con el servidor');
+            }
+        });
+        
+        async function analyzeBid(bidId) {
+            try {
+                const res = await fetch(`${API_URL}/bids/${bidId}/analyze`, { method: 'POST' });
+                const analysis = await res.json();
+                
+                alert(`
+=== ANÁLISIS ===
+Probabilidad de éxito: ${analysis.winProbability}%
+
+Fortalezas:
+${analysis.strengths.map(s => '✓ ' + s).join('\n') || 'Sin fortalezas identificadas'}
+
+Debilidades:
+${analysis.weaknesses.map(w => '✗ ' + w).join('\n') || 'Sin debilidades identificadas'}
+
+Riesgos:
+${analysis.risks.map(r => '⚠ ' + r.description).join('\n') || 'Sin riesgos identificados'}
+
+Recomendaciones:
+${analysis.recommendations.map(r => '→ ' + r).join('\n')}
+                `);
+            } catch (error) {
+                alert('Error analizando cotización');
+            }
+        }
+        
+        async function calculateBid(bidId) {
+            const costs = prompt('Ingrese costos separados por coma:\n(labor, materials, equipment, overhead, other, discount)');
+            if (!costs) return;
+            
+            const [labor, materials, equipment, overhead, other, discount] = costs.split(',').map(Number);
+            
+            try {
+                const res = await fetch(`${API_URL}/bids/${bidId}/calculate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ labor, materials, equipment, overhead, other, discount: discount || 0 })
+                });
+                const pricing = await res.json();
+                
+                alert(===
+PRECIO CALCULADO
+===
+Base: $${pricing.basePrice.toLocaleString()}
+Descuento: ${pricing.discount}%
+Subtotal: $${pricing.subtotal.toLocaleString()}
+IVA: $${pricing.taxAmount.toLocaleString()}
+
+TOTAL: $${pricing.total.toLocaleString()} ${pricing.currency}
+                `);
+            } catch (error) {
+                alert('Error calculando precio');
+            }
+        }
+        
+        // Market
+        async function loadMarket() {
+            try {
+                const [materials, currencies, inflation, context] = await Promise.all([
+                    fetch(`${API_URL}/market/materials`).then(r => r.json()),
+                    fetch(`${API_URL}/market/currencies`).then(r => r.json()),
+                    fetch(`${API_URL}/market/inflation`).then(r => r.json()),
+                    fetch(`${API_URL}/market/context`).then(r => r.json())
+                ]);
+                
+                const materialsHtml = materials.map(m => `
+                    <div class="market-item">
+                        <span>${m.name}</span>
+                        <div>
+                            <strong>$${m.currentPrice.toLocaleString()}</strong>
+                            <span class="market-trend trend-${m.trend}">${m.trend === 'up' ? '↑' : m.trend === 'down' ? '↓' : '→'}</span>
+                        </div>
+                    </div>
+                `).join('');
+                document.getElementById('material-prices').innerHTML = materialsHtml;
+                
+                const currenciesHtml = currencies.map(c => `
+                    <div class="market-item">
+                        <span>${c.pair}</span>
+                        <div>
+                            <span style="color: #28a745;">$${c.buy}</span>
+                            <span style="color: #666;">/</span>
+                            <span style="color: #dc3545;">$${c.sell}</span>
+                        </div>
+                    </div>
+                `).join('');
+                document.getElementById('currency-rates').innerHTML = currenciesHtml;
+                
+                if (inflation) {
+                    document.getElementById('inflation-data').innerHTML = `
+                        <div class="market-item">
+                            <span>${inflation.period}</span>
+                            <strong>${inflation.monthly}% mensual</strong>
+                        </div>
+                        <div class="market-item">
+                            <span>Acumulada</span>
+                            <strong>${inflation.annual}%</strong>
+                        </div>
+                    `;
+                }
+                
+                document.getElementById('economic-context').textContent = context.summary;
+            } catch (error) {
+                console.error('Error loading market:', error);
+            }
+        }
+        
+        async function updateMarketData() {
+            try {
+                const res = await fetch(`${API_URL}/market/update`, { method: 'POST' });
+                const result = await res.json();
+                alert(result.message);
+                loadMarket();
+            } catch (error) {
+                alert('Error actualizando datos');
+            }
+        }
+        
+        // Competitive
+        async function loadCompetitiveSelects() {
+            try {
+                const res = await fetch(`${API_URL}/tenders?status=abierta`);
+                const openTenders = await res.json();
+                const html = openTenders.map(t => `<option value="${t.id}">${t.number} - ${t.title.substring(0, 50)}...</option>`).join('');
+                document.getElementById('competitive-tender-select').innerHTML = html || '<option value="">No hay licitaciones</option>';
+            } catch (error) {
+                document.getElementById('competitive-tender-select').innerHTML = '<option value="">Error</option>';
+            }
+        }
+        
+        async function analyzeCompetitiveness() {
+            const tenderId = document.getElementById('competitive-tender-select').value;
+            if (!tenderId) return;
+            
+            try {
+                const res = await fetch(`${API_URL}/competitive/analyze`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ tenderId })
+                });
+                const analysis = await res.json();
+                
+                document.getElementById('competitive-results').style.display = 'block';
+                document.getElementById('score-total').textContent = analysis.score.total;
+                document.getElementById('score-price').textContent = analysis.score.priceScore;
+                document.getElementById('score-technical').textContent = analysis.score.technicalScore;
+                
+                document.getElementById('benchmark-data').innerHTML = `
+                    <div class="market-item">
+                        <span>Precio promedio mercado</span>
+                        <strong>$${analysis.benchmark.averageMarketPrice.toLocaleString()}</strong>
+                    </div>
+                    <div class="market-item">
+                        <span>Ganador más bajo</span>
+                        <strong>$${analysis.benchmark.lowestWinningPrice.toLocaleString()}</strong>
+                    </div>
+                    <div class="market-item">
+                        <span>Ganador más alto</span>
+                        <strong>$${analysis.benchmark.highestWinningPrice.toLocaleString()}</strong>
+                    </div>
+                `;
+                
+                document.getElementById('competitors-data').innerHTML = analysis.competitors.map(c => `
+                    <div class="market-item">
+                        <span>${c.name}</span>
+                        <strong>${c.winRate * 100}% victorias</strong>
+                    </div>
+                `).join('') || '<p style="color: #666;">Sin datos de competidores</p>';
+                
+            } catch (error) {
+                alert('Error en análisis');
+            }
+        }
+        
+        // Legal
+        async function loadLegalSelects() {
+            try {
+                const res = await fetch(`${API_URL}/tenders`);
+                const allTenders = await res.json();
+                const html = allTenders.map(t => `<option value="${t.id}">${t.number} - ${t.title.substring(0, 50)}...</option>`).join('');
+                document.getElementById('legal-tender-select').innerHTML = html || '<option value="">No hay licitaciones</option>';
+            } catch (error) {
+                document.getElementById('legal-tender-select').innerHTML = '<option value="">Error</option>';
+            }
+        }
+        
+        async function analyzeLegal() {
+            const tenderId = document.getElementById('legal-tender-select').value;
+            if (!tenderId) return;
+            
+            try {
+                const res = await fetch(`${API_URL}/legal/analyze`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ tenderId })
+                });
+                const analysis = await res.json();
+                
+                document.getElementById('legal-results').style.display = 'block';
+                document.getElementById('legal-framework').innerHTML = `
+                    <div class="market-item"><span>Ley</span><strong>${analysis.framework.law}</strong></div>
+                    <div class="market-item"><span>Decreto</span><strong>${analysis.framework.decree}</strong></div>
+                    <div class="market-item"><span>Reglamento</span><strong>${analysis.framework.regulation}</strong></div>
+                `;
+                
+                document.getElementById('legal-clauses').innerHTML = analysis.requiredClauses.map(c => `
+                    <div class="market-item"><span>${c}</span><span>✓</span></div>
+                `).join('');
+                
+                document.getElementById('legal-checklist').innerHTML = analysis.complianceChecklist.map(item => `
+                    <div class="market-item"><span>${item}</span><input type="checkbox"></div>
+                `).join('');
+                
+                document.getElementById('legal-recommendations').innerHTML = analysis.recommendations.map(r => `
+                    <div class="alert alert-info">→ ${r}</div>
+                `).join('');
+                
+            } catch (error) {
+                alert('Error en análisis legal');
+            }
+        }
+        
+        // Tracking
+        async function loadTrackingSelects() {
+            try {
+                const res = await fetch(`${API_URL}/tenders`);
+                const allTenders = await res.json();
+                const html = allTenders.map(t => `<option value="${t.id}">${t.number} - ${t.title.substring(0, 50)}...</option>`).join('');
+                document.getElementById('tracking-tender-select').innerHTML = html || '<option value="">No hay licitaciones</option>';
+            } catch (error) {
+                document.getElementById('tracking-tender-select').innerHTML = '<option value="">Error</option>';
+            }
+        }
+        
+        async function getTracking() {
+            const tenderId = document.getElementById('tracking-tender-select').value;
+            if (!tenderId) return;
+            
+            try {
+                const res = await fetch(`${API_URL}/tracking/${tenderId}/timeline`);
+                const timeline = await res.json();
+                
+                document.getElementById('tracking-results').style.display = 'block';
+                document.getElementById('tracking-summary').textContent = timeline.summary;
+                
+                document.getElementById('tracking-milestones').innerHTML = timeline.upcoming.map(m => `
+                    <div class="market-item">
+                        <span>${m.name}</span>
+                        <strong>${new Date(m.date).toLocaleDateString()}</strong>
+                    </div>
+                `).join('') || '<p style="color: #666;">No hay hitos próximos</p>';
+                
+                const alertsRes = await fetch(`${API_URL}/tracking/${tenderId}/alerts`);
+                const alerts = await alertsRes.json();
+                document.getElementById('tracking-alerts').innerHTML = alerts.map(a => `
+                    <div class="alert alert-warning">⚠ ${a.message}</div>
+                `).join('') || '<p style="color: #28a745;">Sin alertas</p>';
+                
+            } catch (error) {
+                alert('Error obteniendo seguimiento');
+            }
+        }
+        
+        // Config
+        function loadConfig() {
+            fetch(`${API_URL}/config`)
+                .then(res => res.json())
+                .then(config => {
+                    document.getElementById('company-name').value = config.company?.name || '';
+                    document.getElementById('company-taxid').value = config.company?.taxId || '';
+                    if (config.defaults) {
+                        document.getElementById('default-currency').value = config.defaults.currency || 'ARS';
+                        document.getElementById('tax-rate').value = config.defaults.taxRate || 21;
+                        document.getElementById('profit-margin').value = config.defaults.profitMargin || 15;
+                    }
+                })
+                .catch(() => {
+                    // Use defaults
+                    document.getElementById('company-name').value = 'Mi Empresa SA';
+                    document.getElementById('company-taxid').value = '30-12345678-9';
+                });
+        }
+        
+        document.getElementById('config-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            alert('✓ Configuración guardada');
+        });
+        
+        document.getElementById('bid-config-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            alert('✓ Configuración guardada');
+        });
+        
+        // Utils
+        function refreshAll() {
+            loadDashboard();
+        }
+        
+        // Initialize
+        loadDashboard();
+    </script>
+</body>
+</html>

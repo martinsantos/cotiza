@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: cotizar-api
+    env: node
+    buildCommand: npm install && npm run build
+    startCommand: node dist/api/server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+    plan: free
