@@ -1,6 +1,10 @@
 # cotiza
 
-Necesitamos agregar unas variables a considerar desde el origen:
+Servicio CLI para armar cotizaciones en base a información que obtenermos del servicio www.licitometro.ar donde tenemos scrapeadas todas las LICITACIONES ARGENTINAS
+
+Cuando se activa, procede con el flujo de trabajo comenzando a diseccionar, calcular, armar, y redactar una OFERTA COMPEETITIVA DE NIVEL MUNDAL
+
+VAriables a considerar desde el origen:
 
 BUSQUEDA DE PATRONES en un BUNDLE DE OFERTAS que INDEXAREMOS para encontrar: secciones, textos, parámetros en común, template típico, cotizaciones, formatos, etc.
 
