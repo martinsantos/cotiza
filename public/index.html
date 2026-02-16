@@ -218,6 +218,7 @@
                 <h1>cotiz<span>AR</span></h1>
                 <span class="subtitle">Armador de Cotizaciones para Licitaciones</span>
                 <a href="https://www.licitometro.ar" target="_blank" class="licitometro-link">Powered by LICITOMETRO.AR</a>
+                <br><a href="https://www.licitometro.ar" class="licitometro-link">&#8592; Volver a LICITOMETRO</a>
             </div>
             <div class="nav">
                 <div class="nav-section">Principal</div>
@@ -645,7 +646,12 @@
 
     <script>
         // === CONFIG ===
-        const API_URL = window.location.origin + '/api';
+        // Auto-detect base path from current URL pathname
+        // e.g. if we're at licitometro.ar/cotizar, BASE_PATH = '/cotizar'
+        // Works both standalone (/) and under subpath (/cotizar)
+        const pathParts = window.location.pathname.split('/').filter(Boolean);
+        const BASE_PATH = pathParts.length > 0 ? '/' + pathParts[0] : '';
+        const API_URL = window.location.origin + BASE_PATH + '/api';
         let tendersCache = [];
         let bidsCache = [];
         let currentDetailTenderId = null;

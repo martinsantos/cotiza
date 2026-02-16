@@ -13,6 +13,7 @@ services:
       - NODE_ENV=production
       - PORT=3000
       - API_HOST=0.0.0.0
+      - BASE_PATH=/cotizar
     volumes:
       - ./cotizar.config.json:/app/cotizar.config.json:ro
       - ./bids:/app/bids
