@@ -531,7 +531,9 @@ program
               choices: tenders.map(t => ({ name: t.title, value: t.id }))
             }
           ]);
-          const analysis = await competitiveService.analyze(await tenderService.getById(selectedTender));
+          const selectedTenderData = await tenderService.getById(selectedTender);
+          if (!selectedTenderData) { console.log('Licitación no encontrada'); break; }
+          const analysis = await competitiveService.analyze(selectedTenderData);
           console.log(`\nPuntuación: ${analysis.score.total}/100`);
         }
         break;

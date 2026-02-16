@@ -1,6 +1,6 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
-import path from 'path';
+import path, { dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { tenderService } from '../services/tender.service.js';
 import { bidService } from '../services/bid.service.js';
@@ -9,6 +9,7 @@ import { marketService } from '../services/market.service.js';
 import { legalService } from '../services/legal.service.js';
 import { trackingService } from '../services/tracking.service.js';
 import { competitiveService } from '../services/competitive.service.js';
+import { licitometroService } from '../services/licitometro.service.js';
 import { getConfig } from '../config/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -367,6 +368,72 @@ app.get('/api/competitive/competitors/:region', async (req: Request, res: Respon
     res.json(analysis);
   } catch (error) {
     res.status(500).json({ error: 'Failed to get competitor analysis' });
+  }
+});
+
+// ============ LICITOMETRO ============
+
+// Search licitometro.ar
+app.get('/api/licitometro/search', async (req: Request, res: Response) => {
+  try {
+    const { q, estado, jurisdiccion, rubro, organismo, fecha_desde, fecha_hasta, monto_min, monto_max, page, limit } = req.query;
+    const result = await licitometroService.search({
+      q: q as string,
+      estado: estado as string,
+      jurisdiccion: jurisdiccion as string,
+      rubro: rubro as string,
+      organismo: organismo as string,
+      fecha_desde: fecha_desde as string,
+      fecha_hasta: fecha_hasta as string,
+      monto_min: monto_min ? Number(monto_min) : undefined,
+      monto_max: monto_max ? Number(monto_max) : undefined,
+      page: page ? Number(page) : 1,
+      limit: limit ? Number(limit) : 20
+    });
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to search licitometro' });
+  }
+});
+
+// Sync from licitometro.ar
+app.post('/api/licitometro/sync', async (req: Request, res: Response) => {
+  try {
+    const params = req.body;
+    const result = await licitometroService.sync(params);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to sync from licitometro' });
+  }
+});
+
+// Get licitometro status
+app.get('/api/licitometro/status', (_req: Request, res: Response) => {
+  try {
+    const status = licitometroService.getStatus();
+    res.json(status);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to get licitometro status' });
+  }
+});
+
+// Get jurisdicciones
+app.get('/api/licitometro/jurisdicciones', async (_req: Request, res: Response) => {
+  try {
+    const jurisdicciones = await licitometroService.getJurisdicciones();
+    res.json(jurisdicciones);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to get jurisdicciones' });
+  }
+});
+
+// Get rubros
+app.get('/api/licitometro/rubros', async (_req: Request, res: Response) => {
+  try {
+    const rubros = await licitometroService.getRubros();
+    res.json(rubros);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to get rubros' });
   }
 });
 
