@@ -460,4 +460,11 @@ export function startServer(port: number = 3000): void {
   });
 }
 
+// Auto-start when executed directly (node dist/api/server.js)
+const isDirectRun = process.argv[1]?.endsWith('server.js');
+if (isDirectRun) {
+  const port = parseInt(process.env.PORT || '3000', 10);
+  startServer(port);
+}
+
 export default app;
