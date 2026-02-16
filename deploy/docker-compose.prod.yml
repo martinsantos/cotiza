@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  cotizar-api:
+    image: ${COTIZAR_IMAGE:-cotizar-api:latest}
+    container_name: cotizar-api
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - API_HOST=0.0.0.0
+      - BASE_PATH=/cotizar
+      - LICITOMETRO_API_URL=${LICITOMETRO_API_URL:-https://licitometro.ar/api}
+      - LICITOMETRO_API_KEY=${LICITOMETRO_API_KEY:-}
+    volumes:
+      - cotizar-bids:/app/bids
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  nginx:
+    image: nginx:alpine
+    container_name: cotizar-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ../nginx.conf:/etc/nginx/nginx.conf:ro
+      - ${SSL_CERT_PATH:-/dev/null}:/etc/ssl/certs/licitometro.ar.crt:ro
+      - ${SSL_KEY_PATH:-/dev/null}:/etc/ssl/private/licitometro.ar.key:ro
+    depends_on:
+      cotizar-api:
+        condition: service_healthy
+
+volumes:
+  cotizar-bids:
+
+networks:
+  default:
+    name: cotizar-network

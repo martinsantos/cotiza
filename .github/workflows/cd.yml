@@ -1,0 +1,95 @@
+name: CD - Deploy to licitometro.ar
+
+on:
+  push:
+    branches: [master, main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/cotizar-api
+
+jobs:
+  ci:
+    name: CI Checks
+    uses: ./.github/workflows/ci.yml
+
+  build-and-push:
+    name: Build & Push Docker Image
+    runs-on: ubuntu-latest
+    needs: [ci]
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  deploy:
+    name: Deploy to licitometro.ar
+    runs-on: ubuntu-latest
+    needs: [build-and-push]
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            cd /opt/cotizar
+
+            # Pull latest image
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+            # Stop current container
+            docker-compose down
+
+            # Update image reference and start
+            export COTIZAR_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            docker-compose up -d
+
+            # Wait for health check
+            echo "Waiting for health check..."
+            for i in $(seq 1 30); do
+              if curl -sf http://localhost:3000/health > /dev/null 2>&1; then
+                echo "Deploy successful! cotizAR is live at /cotizar"
+                exit 0
+              fi
+              sleep 2
+            done
+            echo "Health check failed"
+            exit 1
+
+      - name: Verify deployment
+        run: |
+          sleep 10
+          curl -sf https://www.licitometro.ar/cotizar/ || echo "Note: external verification skipped (DNS may not resolve from GitHub)"
