@@ -21,6 +21,24 @@ export interface Tender {
   guarantees?: Guarantees;
 }
 
+export interface LegalFramework {
+  law: string;
+  decree: string;
+  regulation: string;
+}
+
+export interface PaymentTerms {
+  type: string;
+  advance: number;
+  milestones: Array<{ milestone: string; percentage: number }>;
+}
+
+export interface Guarantees {
+  offer: { percentage: number; amount: number };
+  performance: { percentage: number; amount: number };
+  technical: { percentage: number; amount: number };
+}
+
 export interface TenderRequirement {
   id: string;
   type: 'technical' | 'commercial' | 'legal' | 'administrative';
@@ -125,6 +143,7 @@ export interface LegalClause {
   type: string;
   description: string;
   accepted: boolean;
+  content?: string;
   notes?: string;
 }
 

@@ -55,7 +55,7 @@ export class PatternService {
         pricePatterns: {
           averageMarkup: 18,
           typicalDiscount: 5,
-          commonPaymentTerms: 'mensual'
+          commonPaymentTerms: ['mensual']
         },
         formats: ['PDF', 'DOCX'],
         usageCount: 25,
@@ -115,7 +115,7 @@ export class PatternService {
         pricePatterns: {
           averageMarkup: 15,
           typicalDiscount: 3,
-          commonPaymentTerms: 'avance'
+          commonPaymentTerms: ['avance']
         },
         formats: ['PDF', 'XLSX'],
         usageCount: 18,
@@ -159,7 +159,7 @@ export class PatternService {
         pricePatterns: {
           averageMarkup: 12,
           typicalDiscount: 8,
-          commonPaymentTerms: 'entrega'
+          commonPaymentTerms: ['entrega']
         },
         formats: ['PDF'],
         usageCount: 12,
@@ -240,7 +240,7 @@ export class PatternService {
       pricePatterns: pattern.pricePatterns || {
         averageMarkup: 15,
         typicalDiscount: 5,
-        commonPaymentTerms: 'mensual'
+        commonPaymentTerms: ['mensual']
       },
       formats: pattern.formats || ['PDF'],
       usageCount: 0,
