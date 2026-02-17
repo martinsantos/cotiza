@@ -4,56 +4,25 @@ on:
   push:
     branches: [master, main]
   workflow_dispatch:
+    inputs:
+      deploy_branch:
+        description: 'Branch to deploy (default: current)'
+        required: false
+        type: string
 
 env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}/cotizar-api
+  DEPLOY_DIR: /opt/cotizar
+  DEPLOY_PORT: 3001
 
 jobs:
   ci:
     name: CI Checks
     uses: ./.github/workflows/ci.yml
 
-  build-and-push:
-    name: Build & Push Docker Image
-    runs-on: ubuntu-latest
-    needs: [ci]
-    permissions:
-      contents: read
-      packages: write
-    outputs:
-      image-tag: ${{ steps.meta.outputs.tags }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=sha
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      - name: Build and push
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-
   deploy:
     name: Deploy to licitometro.ar
     runs-on: ubuntu-latest
-    needs: [build-and-push]
+    needs: [ci]
     environment: production
     steps:
       - uses: actions/checkout@v4
@@ -64,32 +33,50 @@ jobs:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
+          envs: DEPLOY_DIR,DEPLOY_PORT
           script: |
-            cd /opt/cotizar
+            set -euo pipefail
 
-            # Pull latest image
-            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            BRANCH="${{ inputs.deploy_branch || github.ref_name }}"
+            echo "=== cotizAR CD: deploying branch $BRANCH ==="
 
-            # Stop current container
-            docker-compose down
+            # Ensure build tools for better-sqlite3
+            apt-get install -y python3 make g++ 2>/dev/null || true
 
-            # Update image reference and start
-            export COTIZAR_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-            docker-compose up -d
+            cd $DEPLOY_DIR
 
-            # Wait for health check
+            # Fetch and checkout
+            git fetch origin "$BRANCH"
+            git checkout "$BRANCH"
+            git pull origin "$BRANCH"
+            echo "Commit: $(git log --oneline -1)"
+
+            # Install, build, prune
+            npm ci
+            npm run build
+            npm prune --omit=dev 2>/dev/null || true
+
+            # Ensure data dirs exist
+            mkdir -p data bids
+
+            # Restart service
+            systemctl restart cotizar
+
+            # Health check with retry
             echo "Waiting for health check..."
-            for i in $(seq 1 30); do
-              if curl -sf http://localhost:3000/health > /dev/null 2>&1; then
-                echo "Deploy successful! cotizAR is live at /cotizar"
+            for i in $(seq 1 15); do
+              if curl -sf "http://127.0.0.1:$DEPLOY_PORT/health" > /dev/null 2>&1; then
+                echo "=== Deploy OK! cotizAR is live ==="
+                curl -s "http://127.0.0.1:$DEPLOY_PORT/health" | python3 -m json.tool
                 exit 0
               fi
               sleep 2
             done
-            echo "Health check failed"
+            echo "Health check failed. Logs:"
+            journalctl -u cotizar -n 30 --no-pager
             exit 1
 
       - name: Verify deployment
         run: |
-          sleep 10
-          curl -sf https://www.licitometro.ar/cotizar/ || echo "Note: external verification skipped (DNS may not resolve from GitHub)"
+          sleep 5
+          curl -sf "http://${{ secrets.DEPLOY_HOST }}:${{ env.DEPLOY_PORT }}/health" || echo "Direct check skipped (firewall)"

@@ -60,6 +60,6 @@ jobs:
       - name: Test Docker health
         run: |
           docker run -d --name cotizar-test -p 3000:3000 cotizar-api:${{ github.sha }}
-          sleep 5
-          curl -f http://localhost:3000/health || exit 1
+          sleep 8
+          curl -f http://localhost:3000/health || (docker logs cotizar-test && exit 1)
           docker stop cotizar-test
