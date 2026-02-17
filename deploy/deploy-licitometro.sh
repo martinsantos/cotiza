@@ -106,8 +106,22 @@ log "  Commit: $(git log --oneline -1)"
 # ============================================================
 log "[2/6] Instalando dependencias y compilando..."
 
-npm ci --omit=dev 2>/dev/null || npm install --omit=dev
+# better-sqlite3 needs native build tools
+if command -v apt-get &> /dev/null; then
+    apt-get install -y python3 make g++ 2>/dev/null || true
+elif command -v yum &> /dev/null; then
+    yum install -y python3 make gcc-c++ 2>/dev/null || true
+fi
+
+# Full install (includes devDeps for tsc), build, then prune
+npm ci 2>/dev/null || npm install
 npm run build
+
+# Remove devDependencies after build to save disk
+npm prune --omit=dev 2>/dev/null || true
+
+# Create data directories
+mkdir -p "$INSTALL_DIR/data" "$INSTALL_DIR/bids"
 
 log "  Build completado: $(ls -la dist/api/server.js 2>/dev/null && echo 'OK' || echo 'FALLO')"
 
@@ -132,6 +146,8 @@ Environment=NODE_ENV=production
 Environment=PORT=3001
 Environment=BASE_PATH=/cotizar
 Environment=API_HOST=127.0.0.1
+Environment=DB_PATH=/opt/cotizar/data/cotizar.db
+Environment=LOG_LEVEL=info
 
 # Seguridad
 NoNewPrivileges=true
