@@ -569,7 +569,7 @@ jobs:
             fi
 
             # ==========================================================
-            # STEP 8: Final verification
+            # STEP 8: Final verification + infrastructure discovery
             # ==========================================================
             echo ""
             echo "--- [8/8] Verify ---"
@@ -586,18 +586,69 @@ jobs:
             echo -n "Proxy /cotizar/health (port 80): "
             HEALTH_BODY=$(curl -sf "http://127.0.0.1/cotizar/health" 2>/dev/null || echo "FAIL")
             echo "$HEALTH_BODY"
-            if echo "$HEALTH_BODY" | grep -q '"status"'; then
-              echo "PROXY OK - cotizar accessible via licitometro.ar/cotizar"
-            else
-              echo "WARN: proxy not returning cotizar health JSON"
-              echo "DIAG: Docker nginx config for cotizar:"
-              NGINX_C=$(docker ps --format '{{.Names}}' 2>/dev/null | grep -E 'licitometro.*nginx' | head -1)
-              [ -n "$NGINX_C" ] && docker exec "$NGINX_C" grep -n "cotizar" /etc/nginx/conf.d/default.conf 2>/dev/null || echo "(not found)"
-            fi
 
             echo -n "Proxy /cotizar (port 80): "
             STATUS=$(curl -sf -o /dev/null -w "%{http_code}" "http://127.0.0.1/cotizar/" 2>/dev/null || echo "000")
             echo "HTTP $STATUS"
+
+            # === INFRASTRUCTURE DISCOVERY ===
+            # The nginx proxy works locally (port 80) but traffic from
+            # the internet may not go through Docker nginx. Discover
+            # what's actually serving external traffic.
+            echo ""
+            echo "=== Infrastructure Discovery ==="
+
+            # What listens on ports 80, 443, 3000, 3001?
+            echo "Port listeners:"
+            ss -tlnp 2>/dev/null | grep -E ':80|:443|:3000|:3001|:8080' || \
+              netstat -tlnp 2>/dev/null | grep -E ':80|:443|:3000|:3001|:8080' || \
+              echo "  (ss/netstat unavailable)"
+
+            # Cloudflare Tunnel? (cloudflared daemon)
+            echo ""
+            echo "Cloudflare Tunnel:"
+            if pgrep -a cloudflared 2>/dev/null; then
+              echo "  cloudflared IS running"
+              # Find tunnel config
+              for cf in /etc/cloudflared/config.yml /root/.cloudflared/config.yml \
+                        /home/*/.cloudflared/config.yml /opt/*/cloudflared*.yml; do
+                if [ -f "$cf" 2>/dev/null ]; then
+                  echo "  Config: $cf"
+                  cat "$cf" 2>/dev/null
+                fi
+              done
+              # Check systemd service for config path
+              systemctl cat cloudflared 2>/dev/null | grep -i "config\|tunnel\|ExecStart" || true
+              # Also try: cloudflared tunnel info
+              cloudflared tunnel list 2>/dev/null | head -5 || true
+            else
+              echo "  cloudflared NOT running"
+            fi
+
+            # Caddy, Traefik, Envoy, HAProxy?
+            echo ""
+            echo "Other reverse proxies:"
+            for proc in caddy traefik envoy haproxy; do
+              if pgrep -a "$proc" 2>/dev/null; then
+                echo "  $proc IS running"
+              fi
+            done
+
+            # Docker containers (full list with ports)
+            echo ""
+            echo "All Docker containers:"
+            docker ps --format 'table {{.Names}}\t{{.Ports}}\t{{.Image}}' 2>/dev/null || echo "  (docker unavailable)"
+
+            # What ACTUALLY serves HTTPS on port 443?
+            echo ""
+            echo "Port 443 handler:"
+            curl -sfk -o /dev/null -w "Server: %{header.server}\nHTTP: %{http_code}\n" "https://127.0.0.1/" 2>/dev/null || \
+              echo "  Port 443 not responding"
+
+            # Check if there's a separate ingress routing to licitometro
+            echo ""
+            echo "Docker networks:"
+            docker network ls 2>/dev/null || true
 
             # Licitometro still alive
             if $LICITO_OK; then
@@ -625,10 +676,15 @@ jobs:
         run: |
           echo "Checking public URL..."
           sleep 5
-          STATUS=$(curl -sf -o /dev/null -w "%{http_code}" "https://www.licitometro.ar/cotizar/health" 2>/dev/null || echo "000")
-          echo "https://www.licitometro.ar/cotizar/health -> HTTP $STATUS"
-          if [ "$STATUS" = "200" ]; then
-            echo "PUBLIC HEALTH CHECK: OK"
+          # Check CONTENT not just status code (SPA also returns 200)
+          BODY=$(curl -sf "https://www.licitometro.ar/cotizar/health" 2>/dev/null || echo "")
+          echo "Response body (first 200 chars): ${BODY:0:200}"
+          if echo "$BODY" | grep -q '"status"'; then
+            echo "PUBLIC HEALTH CHECK: OK (cotizar JSON)"
+          elif echo "$BODY" | grep -qi "licitometro\|doctype"; then
+            echo "FAIL: Getting licitometro SPA HTML instead of cotizar JSON"
+            echo "The external proxy (Cloudflare Tunnel?) is NOT routing /cotizar to the cotizar service"
+            echo "The Docker nginx proxy works locally but external traffic bypasses it"
           else
-            echo "Public health check failed (HTTP $STATUS) - may need manual nginx config"
+            echo "FAIL: Unexpected response"
           fi
