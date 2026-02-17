@@ -2,7 +2,7 @@ name: CD - Deploy to licitometro.ar
 
 on:
   push:
-    branches: [master, main]
+    branches: [master, main, 'claude/**']
   workflow_dispatch:
     inputs:
       deploy_branch:
