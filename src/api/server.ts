@@ -10,7 +10,7 @@ import { legalService } from '../services/legal.service.js';
 import { trackingService } from '../services/tracking.service.js';
 import { competitiveService } from '../services/competitive.service.js';
 import { licitometroService } from '../services/licitometro.service.js';
-import { getConfig } from '../config/index.js';
+import { getConfig, loadConfig } from '../config/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -462,14 +462,26 @@ app.get('*', (_req: Request, res: Response) => {
   res.sendFile(path.join(publicPath, 'index.html'));
 });
 
-export function startServer(port: number = 3000): void {
+export function startServer(port?: number): void {
   const config = getConfig();
-  const actualPort = port || config.api.port;
-  
-  app.listen(actualPort, config.api.host, () => {
-    console.log(`cotizAR API server running on http://${config.api.host}:${actualPort}`);
+  const actualPort = port || Number(process.env.PORT) || config.api.port || 3000;
+  const host = process.env.API_HOST || config.api.host || '0.0.0.0';
+
+  app.listen(actualPort, host, () => {
+    console.log(`cotizAR API server running on http://${host}:${actualPort}`);
     console.log(`Web UI available at http://localhost:${actualPort}`);
   });
+}
+
+// Auto-start when run directly (not imported as module)
+const isMainModule = process.argv[1] && (
+  process.argv[1].endsWith('/api/server.js') ||
+  process.argv[1].endsWith('/api/server.ts')
+);
+
+if (isMainModule) {
+  loadConfig();
+  startServer();
 }
 
 export default app;
