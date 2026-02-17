@@ -1,95 +1,76 @@
-# CI/CD Setup - cotizAR en licitometro.ar
+# CI/CD - cotizAR en licitometro.ar
 
-## Requisitos: GitHub Secrets
+## Requisitos: 3 Secrets en GitHub
 
-Ir a: **GitHub repo → Settings → Secrets and variables → Actions**
-
-Crear estos 3 secrets:
+**Repo → Settings → Secrets and variables → Actions**
 
 | Secret | Valor | Ejemplo |
 |--------|-------|---------|
-| `DEPLOY_HOST` | IP del VPS | `76.13.234.213` |
+| `DEPLOY_HOST` | IP del VPS | `203.0.113.10` |
 | `DEPLOY_USER` | Usuario SSH | `root` |
-| `DEPLOY_SSH_KEY` | Clave privada SSH completa | `-----BEGIN OPENSSH PRIVATE KEY-----...` |
+| `DEPLOY_SSH_KEY` | Clave privada SSH **completa** | `-----BEGIN OPENSSH PRIVATE KEY-----...` |
 
 ### Cómo obtener la SSH key:
 
 ```bash
-# En tu máquina local:
 cat ~/.ssh/id_rsa
-# O si usás ed25519:
+# o
 cat ~/.ssh/id_ed25519
 ```
 
-Copiar TODO el contenido (incluyendo las líneas BEGIN/END) al secret `DEPLOY_SSH_KEY`.
+Copiar **TODO** (incluyendo BEGIN/END) al secret `DEPLOY_SSH_KEY`.
 
-### Crear GitHub Environment:
+### Environment de GitHub:
 
-1. GitHub repo → Settings → Environments
-2. Crear environment: **production**
-3. (Opcional) Agregar "Required reviewers" para aprobar deploys
+1. Settings → Environments → New environment → **production**
+2. (Opcional) agregar reviewers para aprobar deploys
 
 ---
 
-## Flujo CI/CD
+## Flujo completo
 
 ```
-Push a main/master
+Push a cualquier branch (main, claude/**)
     ↓
 CI: typecheck → test → build → docker
     ↓ (todo OK)
-CD: SSH al server → pull → build → restart cotizar → health check
-    ↓ (si falla)
+CD: SSH al server →
+    instala Node.js si falta →
+    instala build tools →
+    clone/pull código →
+    npm ci + build →
+    crea usuario + systemd →
+    restart servicio →
+    health check →
+    configura nginx (auto, seguro) →
+    smoke test público
+    ↓ (si falla health check)
     ROLLBACK automático al commit anterior
 ```
 
-## Workflows disponibles
+## Qué hace el CD automáticamente
 
-### 1. CI (automático)
-- Se ejecuta en cada push a `main`, `master`, `claude/**`
-- Corre: typecheck, tests, build, docker build
-
-### 2. CD (automático + manual)
-- **Automático**: push a `main` o `master`
-- **Manual**: Actions → "CD - Deploy" → Run workflow
-  - Podés elegir branch
-  - Podés skipear CI (emergency deploy)
-
-### 3. Setup (manual, una sola vez)
-- Actions → "Setup - First deploy" → Run workflow
-- Escribir "setup" para confirmar
-- Instala Node.js, crea usuario, servicio systemd, snippet nginx
-
----
-
-## Seguridad
-
-- **NUNCA toca nginx automáticamente** (solo crea snippet)
-- **NUNCA modifica licitometro.ar**
-- Solo toca `/opt/cotizar` y el servicio `cotizar`
-- Verifica que licitometro sigue vivo antes y después del deploy
-- Rollback automático si health check falla
-- Concurrency lock: no se pueden ejecutar 2 deploys simultáneos
+1. Instala Node.js 20 si no existe o es viejo
+2. Instala python3/make/g++ para better-sqlite3
+3. Clona o actualiza el código
+4. `npm ci` + `npm run build`
+5. Crea usuario `cotizar` (no root)
+6. Crea/actualiza servicio systemd
+7. **Configura nginx automáticamente** (con backup y rollback si falla)
+8. Verifica que licitometro.ar sigue vivo post-deploy
+9. Smoke test desde afuera a la URL pública
 
 ## Desde el teléfono
 
-1. Abrir GitHub en el browser
-2. Ir a **Actions**
-3. Seleccionar **"CD - Deploy"**
-4. **Run workflow** → elegir branch → Go
+1. GitHub → **Actions**
+2. **"CD - Deploy to licitometro.ar"**
+3. **Run workflow** → elegir branch → Go
 
 ## Comandos útiles en el server
 
 ```bash
-# Ver logs
-journalctl -u cotizar -f
-
-# Estado
-systemctl status cotizar
-
-# Reiniciar
-systemctl restart cotizar
-
-# Health check
-curl localhost:3001/health
+journalctl -u cotizar -f        # Logs en vivo
+systemctl status cotizar         # Estado
+systemctl restart cotizar        # Reiniciar
+curl localhost:3001/health       # Health check
 ```
