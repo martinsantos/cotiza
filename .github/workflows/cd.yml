@@ -252,304 +252,116 @@ jobs:
             fi
 
             # ==========================================================
-            # STEP 7: Reverse proxy config (auto-detect web server)
+            # STEP 7: Reverse proxy (Docker nginx + cotizar config)
             # ==========================================================
             echo ""
             echo "--- [7/8] Reverse proxy ---"
 
-            # Detect what web server is running
-            echo "=== WEB SERVER DETECTION ==="
-            echo "Processes on port 80/443:"
-            ss -tlnp 2>/dev/null | grep -E ':80\s|:443\s' || netstat -tlnp 2>/dev/null | grep -E ':80\s|:443\s' || echo "(could not detect)"
-            echo ""
-            echo "Installed web servers:"
-            for cmd in nginx apache2 httpd caddy; do
-              if command -v $cmd &>/dev/null; then
-                echo "  $cmd: $($cmd -v 2>&1 || echo 'found')"
-              fi
-            done
-            echo ""
-            echo "Docker containers:"
-            docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Ports}}' 2>/dev/null || echo "(docker not available or no containers)"
-            echo ""
-            echo "Running services:"
-            systemctl list-units --type=service --state=running 2>/dev/null | grep -iE 'nginx|apache|httpd|caddy|docker|proxy' || echo "(none matching)"
-            echo "=== END DETECTION ==="
+            # Architecture: licitometro-nginx-1 Docker container serves
+            # ports 80/443. It proxies /cotizar/* to host port 3001.
+            # The proxy config lives INSIDE the Docker container.
+            # Host Caddy is only for dev.licitometro.ar previews.
 
             PROXY_CONFIGURED=false
 
-            # ---- NGINX ----
-            if command -v nginx &>/dev/null; then
-              echo ""
-              echo "Configuring NGINX..."
-              nginx -T 2>&1 || true
-
-              python3 << 'PYEOF'
-            import subprocess, re, os, sys, shutil
-            from datetime import datetime
-
-            COTIZAR_BLOCK = """
-            # BEGIN COTIZAR PROXY (auto-managed by CD)
-            location ^~ /cotizar/api/ {
-                proxy_pass http://127.0.0.1:3001/cotizar/api/;
-                proxy_http_version 1.1;
-                proxy_set_header Host $host;
-                proxy_set_header X-Real-IP $remote_addr;
-                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                proxy_set_header X-Forwarded-Proto $scheme;
-                proxy_read_timeout 30s;
-            }
-            location ^~ /cotizar/config/ {
-                proxy_pass http://127.0.0.1:3001/cotizar/config/;
-                proxy_http_version 1.1;
-                proxy_set_header Host $host;
-                proxy_set_header X-Real-IP $remote_addr;
-            }
-            location ^~ /cotizar/health {
-                proxy_pass http://127.0.0.1:3001/health;
-                proxy_http_version 1.1;
-                proxy_set_header Host $host;
-            }
-            location ^~ /cotizar {
-                proxy_pass http://127.0.0.1:3001/cotizar;
-                proxy_http_version 1.1;
-                proxy_set_header Host $host;
-                proxy_set_header X-Real-IP $remote_addr;
-                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                proxy_set_header X-Forwarded-Proto $scheme;
-            }
-            # END COTIZAR PROXY
-            """
-            lines_raw = COTIZAR_BLOCK.split('\n')
-            min_indent = min((len(l) - len(l.lstrip()) for l in lines_raw if l.strip()), default=0)
-            COTIZAR_BLOCK = '\n'.join(l[min_indent:] for l in lines_raw).strip()
-
-            def run(cmd):
-                r = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-                return r.stdout + r.stderr
-
-            full = run("nginx -T 2>&1")
-            current_file = None
-            server_blocks = []
-            in_server = has_ssl = has_location = has_root = False
-            brace_depth = 0
-
-            for line in full.splitlines():
-                m = re.match(r'# configuration file (.+):$', line)
-                if m:
-                    current_file = m.group(1)
-                    continue
-                stripped = line.strip()
-                if re.match(r'server\s*\{', stripped):
-                    in_server, has_ssl, has_location, has_root, brace_depth = True, False, False, False, 0
-                if in_server:
-                    brace_depth += line.count('{') - line.count('}')
-                    if 'ssl' in stripped: has_ssl = True
-                    if re.match(r'location\s+', stripped): has_location = True
-                    if re.match(r'root\s+', stripped) or 'try_files' in stripped: has_root = True
-                    if brace_depth <= 0 and '}' in line:
-                        server_blocks.append({'file': current_file, 'ssl': has_ssl, 'location': has_location, 'root': has_root})
-                        in_server = False
-
-            print(f"Found {len(server_blocks)} server blocks:")
-            for sb in server_blocks:
-                print(f"  {sb['file']} ssl={sb['ssl']} loc={sb['location']} root={sb['root']}")
-
-            target_files = set()
-            for sb in server_blocks:
-                if sb['ssl'] and (sb['location'] or sb['root']) and sb['file']:
-                    target_files.add(sb['file'])
-            if not target_files:
-                for sb in server_blocks:
-                    if (sb['location'] or sb['root']) and sb['file']:
-                        target_files.add(sb['file'])
-            if not target_files:
-                for sb in server_blocks:
-                    if sb['file']:
-                        target_files.add(sb['file'])
-            if not target_files:
-                for d in ['/etc/nginx/sites-enabled', '/etc/nginx/conf.d']:
-                    if os.path.isdir(d):
-                        for f in sorted(os.listdir(d)):
-                            fp = os.path.join(d, f)
-                            if not f.endswith('.bak') and (os.path.isfile(fp) or os.path.islink(fp)):
-                                target_files.add(os.path.realpath(fp))
-
-            if not target_files:
-                print("No nginx configs found")
-                sys.exit(1)
-
-            modified = 0
-            for conf_path in sorted(target_files):
-                if '.bak' in conf_path: continue
-                with open(conf_path, 'r') as f:
-                    original = f.read()
-                cleaned = re.sub(r'\n?\s*include\s+/etc/nginx/snippets/cotizar\.conf;\s*\n?', '\n', original)
-                cleaned = re.sub(r'\s*# BEGIN COTIZAR PROXY.*?# END COTIZAR PROXY\s*', '', cleaned, flags=re.DOTALL)
-                lines = cleaned.splitlines(True)
-                new_lines, i, inserted = [], 0, False
-                while i < len(lines):
-                    if re.match(r'server\s*\{', lines[i].strip()):
-                        depth, block, j, first_loc = 0, [], i, -1
-                        while j < len(lines):
-                            block.append(lines[j])
-                            depth += lines[j].count('{') - lines[j].count('}')
-                            if re.match(r'\s*location\s+', lines[j].strip()) and first_loc < 0:
-                                first_loc = len(block) - 1
-                            if depth <= 0 and j > i: break
-                            j += 1
-                        insert_at = first_loc if first_loc >= 0 else len(block) - 1
-                        for k, bl in enumerate(block):
-                            if k == insert_at:
-                                new_lines.append('\n')
-                                for cl in COTIZAR_BLOCK.splitlines():
-                                    new_lines.append('    ' + cl + '\n')
-                                new_lines.append('\n')
-                                inserted = True
-                            new_lines.append(bl)
-                        i = j + 1
-                        continue
-                    new_lines.append(lines[i])
-                    i += 1
-                if inserted:
-                    shutil.copy2(conf_path, f"{conf_path}.bak.{datetime.now().strftime('%s')}")
-                    with open(conf_path, 'w') as f:
-                        f.writelines(new_lines)
-                    modified += 1
-                    print(f"Modified: {conf_path}")
-            print(f"Total modified: {modified}")
-            sys.exit(0 if modified > 0 else 1)
-            PYEOF
-
-              if [ $? -eq 0 ] && nginx -t 2>&1; then
-                nginx -s reload
-                sleep 2
-                if curl -sf "http://127.0.0.1/cotizar/health" 2>/dev/null | grep -q "status"; then
-                  echo "NGINX PROXY OK"
-                  PROXY_CONFIGURED=true
-                fi
-              fi
+            # First: check if proxy already works (config is in Docker nginx)
+            echo -n "Testing existing proxy: "
+            if curl -sf "http://127.0.0.1/cotizar/health" 2>/dev/null | grep -q '"status"'; then
+              echo "PROXY ALREADY WORKS"
+              PROXY_CONFIGURED=true
+            else
+              echo "not working yet"
             fi
 
-            # ---- APACHE ----
-            if ! $PROXY_CONFIGURED && (command -v apache2 &>/dev/null || command -v httpd &>/dev/null); then
-              echo ""
-              echo "Configuring APACHE..."
-              APACHE_CMD=$(command -v apache2 || command -v httpd)
-
-              # Enable required modules
-              a2enmod proxy proxy_http 2>/dev/null || true
-
-              # Write cotizar proxy config
-              cat > /etc/apache2/conf-available/cotizar.conf 2>/dev/null || cat > /etc/httpd/conf.d/cotizar.conf 2>/dev/null << 'APEOF'
-            # cotizAR reverse proxy (auto-managed by CD)
-            ProxyPreserveHost On
-
-            # API routes
-            ProxyPass /cotizar/api/ http://127.0.0.1:3001/cotizar/api/
-            ProxyPassReverse /cotizar/api/ http://127.0.0.1:3001/cotizar/api/
-
-            # Config routes
-            ProxyPass /cotizar/config/ http://127.0.0.1:3001/cotizar/config/
-            ProxyPassReverse /cotizar/config/ http://127.0.0.1:3001/cotizar/config/
-
-            # Health check
-            ProxyPass /cotizar/health http://127.0.0.1:3001/health
-            ProxyPassReverse /cotizar/health http://127.0.0.1:3001/health
-
-            # Main app (must be last)
-            ProxyPass /cotizar http://127.0.0.1:3001/cotizar
-            ProxyPassReverse /cotizar http://127.0.0.1:3001/cotizar
-            APEOF
-              sed -i 's/^            //' /etc/apache2/conf-available/cotizar.conf 2>/dev/null || true
-              sed -i 's/^            //' /etc/httpd/conf.d/cotizar.conf 2>/dev/null || true
-
-              # Enable on Debian/Ubuntu
-              a2enconf cotizar 2>/dev/null || true
-
-              if apache2ctl configtest 2>&1 || httpd -t 2>&1; then
-                systemctl reload apache2 2>/dev/null || systemctl reload httpd 2>/dev/null
-                sleep 2
-                if curl -sf "http://127.0.0.1/cotizar/health" 2>/dev/null | grep -q "status"; then
-                  echo "APACHE PROXY OK"
-                  PROXY_CONFIGURED=true
-                else
-                  echo "Apache reloaded but proxy test failed"
-                fi
-              else
-                echo "Apache config test failed"
-              fi
-            fi
-
-            # ---- CADDY ----
-            if ! $PROXY_CONFIGURED && command -v caddy &>/dev/null; then
-              echo ""
-              echo "Configuring CADDY..."
-              echo "Caddy config location:"
-              find /etc/caddy -type f 2>/dev/null || echo "(no /etc/caddy)"
-              cat /etc/caddy/Caddyfile 2>/dev/null || true
-
-              # Caddy: append reverse proxy to Caddyfile
-              if [ -f /etc/caddy/Caddyfile ]; then
-                if ! grep -q "cotizar" /etc/caddy/Caddyfile; then
-                  # Add handle block for cotizar
-                  python3 -c "
-            import re
-            with open('/etc/caddy/Caddyfile', 'r') as f:
-                content = f.read()
-            # Add cotizar proxy before the last closing brace or at end
-            block = '''
-                # BEGIN COTIZAR PROXY
-                handle_path /cotizar/health {
-                    reverse_proxy 127.0.0.1:3001
-                }
-                handle /cotizar/* {
-                    reverse_proxy 127.0.0.1:3001
-                }
-                handle /cotizar {
-                    reverse_proxy 127.0.0.1:3001
-                }
-                # END COTIZAR PROXY
-            '''
-            import textwrap
-            block = textwrap.dedent(block)
-            # Insert before the last }
-            idx = content.rfind('}')
-            if idx > 0:
-                content = content[:idx] + block + '\n' + content[idx:]
-            else:
-                content += block
-            with open('/etc/caddy/Caddyfile', 'w') as f:
-                f.write(content)
-            print('Caddyfile updated')
-            "
-                fi
-                caddy validate --config /etc/caddy/Caddyfile 2>&1 || true
-                systemctl reload caddy 2>/dev/null || caddy reload 2>/dev/null
-                sleep 2
-                if curl -sf "http://127.0.0.1/cotizar/health" 2>/dev/null | grep -q "status"; then
-                  echo "CADDY PROXY OK"
-                  PROXY_CONFIGURED=true
-                fi
-              fi
-            fi
-
-            # ---- NO WEB SERVER FOUND ----
+            # If proxy doesn't work, try to configure Docker nginx
             if ! $PROXY_CONFIGURED; then
               echo ""
+              echo "Attempting to configure proxy in Docker nginx..."
+
+              # Find the licitometro nginx container
+              NGINX_CONTAINER=$(docker ps --format '{{.Names}}' 2>/dev/null | grep -E 'licitometro.*nginx' | head -1)
+              if [ -z "$NGINX_CONTAINER" ]; then
+                NGINX_CONTAINER=$(docker ps --format '{{.Names}}' 2>/dev/null | grep nginx | head -1)
+              fi
+
+              if [ -n "$NGINX_CONTAINER" ]; then
+                echo "Found nginx container: $NGINX_CONTAINER"
+
+                # Show current nginx config inside container
+                echo "Current nginx config:"
+                docker exec "$NGINX_CONTAINER" cat /etc/nginx/conf.d/default.conf 2>/dev/null | head -50 || \
+                  docker exec "$NGINX_CONTAINER" nginx -T 2>/dev/null | head -80 || \
+                  echo "(could not read config)"
+
+                # Check if cotizar proxy already exists in config
+                if docker exec "$NGINX_CONTAINER" grep -q "cotizar" /etc/nginx/conf.d/default.conf 2>/dev/null; then
+                  echo "cotizar proxy config exists in container"
+                  # Reload nginx inside container
+                  docker exec "$NGINX_CONTAINER" nginx -s reload 2>/dev/null || true
+                  sleep 2
+                  if curl -sf "http://127.0.0.1/cotizar/health" 2>/dev/null | grep -q '"status"'; then
+                    echo "PROXY OK after reload"
+                    PROXY_CONFIGURED=true
+                  fi
+                fi
+
+                # If still not working, inject the config
+                if ! $PROXY_CONFIGURED; then
+                  echo "Injecting cotizar proxy config into $NGINX_CONTAINER..."
+
+                  # Create cotizar proxy config snippet
+                  docker exec "$NGINX_CONTAINER" sh -c 'cat > /etc/nginx/conf.d/cotizar.conf << EOF
+            # cotizAR reverse proxy (auto-managed by CD)
+            # Proxy /cotizar/* to the cotizar service on host port 3001
+
+            upstream cotizar_backend {
+                server host.docker.internal:3001;
+            }
+
+            # Note: these location blocks must be included in the main
+            # server block. If this file is auto-included by nginx,
+            # it needs to be inside a server context.
+            EOF' 2>/dev/null || true
+
+                  # Try to add location blocks to the main config
+                  docker exec "$NGINX_CONTAINER" sh -c '
+                    # Check if /cotizar is already in the main config
+                    if ! grep -q "location.*cotizar" /etc/nginx/conf.d/default.conf 2>/dev/null; then
+                      echo "Adding cotizar locations to default.conf..."
+                      # We need to find the right place in the server block
+                      # For safety, just test if nginx can see the upstream
+                      nginx -t 2>&1
+                    fi
+                  ' 2>/dev/null || true
+
+                  # Reload and test
+                  docker exec "$NGINX_CONTAINER" nginx -s reload 2>/dev/null || true
+                  sleep 2
+                  if curl -sf "http://127.0.0.1/cotizar/health" 2>/dev/null | grep -q '"status"'; then
+                    echo "PROXY OK after injection"
+                    PROXY_CONFIGURED=true
+                  else
+                    echo "Could not auto-configure Docker nginx proxy"
+                    echo "The nginx config inside $NGINX_CONTAINER needs manual /cotizar location blocks"
+                  fi
+                fi
+              else
+                echo "No Docker nginx container found"
+                echo "Docker containers:"
+                docker ps --format 'table {{.Names}}\t{{.Ports}}' 2>/dev/null || echo "(docker not available)"
+              fi
+            fi
+
+            # Status report
+            echo ""
+            if $PROXY_CONFIGURED; then
+              echo "PROXY STATUS: CONFIGURED"
+            else
               echo "========================================"
-              echo "WARNING: No reverse proxy configured!"
-              echo "cotizar is running on port $DEPLOY_PORT"
-              echo "but no web server (nginx/apache/caddy)"
-              echo "was found or could be configured."
-              echo ""
-              echo "cotizar direct access works:"
-              echo "  http://<server-ip>:$DEPLOY_PORT/health"
-              echo "  http://<server-ip>:$DEPLOY_PORT/cotizar"
-              echo ""
-              echo "To fix: install nginx and re-run deploy,"
-              echo "or manually configure your web server to"
-              echo "proxy /cotizar/* to 127.0.0.1:$DEPLOY_PORT"
+              echo "WARNING: Proxy to /cotizar not working"
+              echo "cotizar runs on port $DEPLOY_PORT (direct)"
+              echo "Production nginx is inside Docker container"
+              echo "May need manual config in licitometro nginx"
               echo "========================================"
             fi
 
@@ -559,31 +371,29 @@ jobs:
             echo ""
             echo "--- [8/8] Verify ---"
 
-            # Direct
-            echo -n "Direct health: "
+            # Direct service check
+            echo -n "Direct health (port $DEPLOY_PORT): "
             curl -sf "http://127.0.0.1:$DEPLOY_PORT/health" 2>/dev/null && echo "" || echo "FAIL"
 
-            echo -n "Direct API: "
-            curl -sf -o /dev/null -w "%{http_code}" "http://127.0.0.1:$DEPLOY_PORT/cotizar/api/tenders" 2>/dev/null || echo "FAIL"
+            echo -n "Direct API (port $DEPLOY_PORT): "
+            curl -sf -o /dev/null -w "HTTP %{http_code}" "http://127.0.0.1:$DEPLOY_PORT/cotizar/api/tenders" 2>/dev/null || echo "FAIL"
             echo ""
 
-            # Via nginx - verify proxy is actually reaching cotizar (not licitometro SPA)
-            echo -n "Nginx /cotizar/health: "
-            HEALTH_BODY=$(curl -sf "http://localhost/cotizar/health" 2>/dev/null || echo "FAIL")
+            # Proxy check (via Docker nginx on port 80)
+            echo -n "Proxy /cotizar/health (port 80): "
+            HEALTH_BODY=$(curl -sf "http://127.0.0.1/cotizar/health" 2>/dev/null || echo "FAIL")
             echo "$HEALTH_BODY"
             if echo "$HEALTH_BODY" | grep -q '"status"'; then
-              echo "PROXY OK - cotizar is responding through nginx"
+              echo "PROXY OK - cotizar accessible via licitometro.ar/cotizar"
             else
-              echo "WARN: /cotizar/health did not return JSON - nginx may not be proxying correctly"
-              echo "DIAG: checking nginx config for cotizar includes..."
-              grep -rn "cotizar" /etc/nginx/sites-enabled/ /etc/nginx/conf.d/ 2>/dev/null || true
-              echo "DIAG: response body preview:"
-              curl -sf "http://localhost/cotizar/health" 2>/dev/null | head -c 200 || true
-              echo ""
+              echo "WARN: proxy not returning cotizar health JSON"
+              echo "DIAG: Docker nginx config for cotizar:"
+              NGINX_C=$(docker ps --format '{{.Names}}' 2>/dev/null | grep -E 'licitometro.*nginx' | head -1)
+              [ -n "$NGINX_C" ] && docker exec "$NGINX_C" grep -n "cotizar" /etc/nginx/conf.d/default.conf 2>/dev/null || echo "(not found)"
             fi
 
-            echo -n "Nginx /cotizar: "
-            STATUS=$(curl -sf -o /dev/null -w "%{http_code}" "http://localhost/cotizar/" 2>/dev/null || echo "000")
+            echo -n "Proxy /cotizar (port 80): "
+            STATUS=$(curl -sf -o /dev/null -w "%{http_code}" "http://127.0.0.1/cotizar/" 2>/dev/null || echo "000")
             echo "HTTP $STATUS"
 
             # Licitometro still alive
