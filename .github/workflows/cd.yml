@@ -278,56 +278,69 @@ jobs:
             NGXEOF
               sed -i 's/^            //' /etc/nginx/snippets/cotizar.conf
               echo "Snippet created: /etc/nginx/snippets/cotizar.conf"
-              cat /etc/nginx/snippets/cotizar.conf
 
-              # Find nginx config for licitometro
-              NGINX_CONF=""
-              for f in /etc/nginx/sites-enabled/licitometro* \
-                       /etc/nginx/sites-enabled/default \
-                       /etc/nginx/conf.d/licitometro* \
-                       /etc/nginx/conf.d/default.conf; do
-                if [ -f "$f" ] 2>/dev/null; then
-                  NGINX_CONF="$f"
-                  break
+              # DIAG: dump full nginx config tree
+              echo "DIAG: nginx config files:"
+              find /etc/nginx -name '*.conf' -o -name 'default' | grep -v '\.bak' | sort
+              echo ""
+
+              # Find ALL nginx config files with server blocks (not just the first)
+              # This handles certbot setups with separate HTTP/HTTPS blocks
+              CONFIGS_MODIFIED=0
+              CONFIGS_FOUND=""
+
+              for f in $(find /etc/nginx/sites-enabled/ /etc/nginx/conf.d/ -type f -o -type l 2>/dev/null | grep -v '\.bak' | sort); do
+                if grep -q 'server' "$f" 2>/dev/null; then
+                  CONFIGS_FOUND="$CONFIGS_FOUND $f"
                 fi
               done
 
-              if [ -z "$NGINX_CONF" ]; then
-                NGINX_CONF=$(grep -rl "server_name" /etc/nginx/ 2>/dev/null | grep -v "snippets\|backup\|\.bak" | head -1 || true)
+              # Fallback: search broader
+              if [ -z "$CONFIGS_FOUND" ]; then
+                CONFIGS_FOUND=$(grep -rl "server_name" /etc/nginx/ 2>/dev/null | grep -v "snippets\|\.bak" | head -5 || true)
               fi
 
-              if [ -z "$NGINX_CONF" ]; then
-                echo "WARN: No nginx server config found. Manual nginx setup needed."
-                echo "DIAG: listing nginx configs..."
-                ls -la /etc/nginx/sites-enabled/ 2>/dev/null || true
-                ls -la /etc/nginx/conf.d/ 2>/dev/null || true
-              elif grep -q "snippets/cotizar.conf" "$NGINX_CONF" 2>/dev/null; then
-                echo "nginx already includes cotizar snippet in $NGINX_CONF"
-                echo "DIAG: current cotizar-related lines:"
-                grep -n "cotizar" "$NGINX_CONF" 2>/dev/null || true
-                nginx -t 2>&1 && nginx -s reload && echo "nginx reloaded" || echo "WARN: nginx reload failed"
+              echo "DIAG: server config files found:$CONFIGS_FOUND"
+
+              if [ -z "$CONFIGS_FOUND" ]; then
+                echo "WARN: No nginx server config found. Manual setup needed."
               else
-                echo "Adding cotizar snippet to $NGINX_CONF..."
-                echo "DIAG: current config content:"
-                cat -n "$NGINX_CONF"
+                for NGINX_CONF in $CONFIGS_FOUND; do
+                  echo ""
+                  echo "--- Processing: $NGINX_CONF ---"
+                  echo "DIAG: content preview:"
+                  head -30 "$NGINX_CONF"
+                  echo "..."
 
-                # Backup
-                BACKUP="$NGINX_CONF.bak.$(date +%s)"
-                cp "$NGINX_CONF" "$BACKUP"
-                echo "Backup: $BACKUP"
+                  # Skip pure redirect configs (301/302 only, no location blocks serving content)
+                  if grep -q 'return 301\|return 302' "$NGINX_CONF" 2>/dev/null && ! grep -q 'location.*/' "$NGINX_CONF" 2>/dev/null; then
+                    echo "Skipping (redirect-only config)"
+                    continue
+                  fi
 
-                # Insert include - robust Python insertion
-                python3 -c "
+                  if grep -q "snippets/cotizar.conf" "$NGINX_CONF" 2>/dev/null; then
+                    echo "Already includes cotizar snippet"
+                    CONFIGS_MODIFIED=$((CONFIGS_MODIFIED + 1))
+                    continue
+                  fi
+
+                  echo "Adding cotizar snippet..."
+
+                  # Backup
+                  BACKUP="$NGINX_CONF.bak.$(date +%s)"
+                  cp "$NGINX_CONF" "$BACKUP"
+
+                  # Insert include using Python - handles any config format
+                  python3 -c "
             import sys, re
 
             with open('$NGINX_CONF', 'r') as f:
-                content = f.read()
-                lines = content.splitlines(True)
+                lines = f.readlines()
 
             include_line = '    include /etc/nginx/snippets/cotizar.conf;\n'
             inserted = False
 
-            # Strategy 1: insert before any 'location' directive (cotizar needs priority)
+            # Strategy 1: insert before any 'location' directive
             for i, line in enumerate(lines):
                 stripped = line.strip()
                 if re.match(r'location\s+', stripped):
@@ -336,25 +349,24 @@ jobs:
                     print(f'Inserted before line {i+1}: {stripped}')
                     break
 
-            # Strategy 2: insert before last closing brace in server block
+            # Strategy 2: find server block, insert before closing brace
             if not inserted:
-                brace_depth = 0
-                server_start = -1
+                depth = 0
+                in_server = False
                 for i, line in enumerate(lines):
-                    if 'server' in line and '{' in line:
-                        server_start = i
-                    if '{' in line:
-                        brace_depth += line.count('{')
-                    if '}' in line:
-                        brace_depth -= line.count('}')
-                    # When we return to depth 0 after server block, insert before closing
-                    if server_start >= 0 and brace_depth == 0:
+                    if re.match(r'\s*server\s*\{', line):
+                        in_server = True
+                        depth = 0
+                    for ch in line:
+                        if ch == '{': depth += 1
+                        elif ch == '}': depth -= 1
+                    if in_server and depth == 0 and '}' in line:
                         lines.insert(i, '\n' + include_line + '\n')
                         inserted = True
                         print(f'Inserted before server closing brace at line {i+1}')
                         break
 
-            # Strategy 3: insert before the very last }
+            # Strategy 3: before last }
             if not inserted:
                 for i in range(len(lines)-1, -1, -1):
                     if '}' in lines[i]:
@@ -366,29 +378,53 @@ jobs:
             if inserted:
                 with open('$NGINX_CONF', 'w') as f:
                     f.writelines(lines)
-                print('Include inserted OK')
+                print('OK')
             else:
-                print('ERROR: could not find insertion point')
+                print('ERROR: no insertion point')
                 sys.exit(1)
-            " 2>&1 || {
-                  echo "WARN: auto-insert failed, restoring backup"
-                  cp "$BACKUP" "$NGINX_CONF"
-                  echo "Add manually: include /etc/nginx/snippets/cotizar.conf;"
-                }
+            " 2>&1 && {
+                    CONFIGS_MODIFIED=$((CONFIGS_MODIFIED + 1))
+                    echo "DIAG: cotizar lines after insert:"
+                    grep -n "cotizar\|location" "$NGINX_CONF" | head -20
+                  } || {
+                    echo "WARN: insertion failed, restoring backup"
+                    cp "$BACKUP" "$NGINX_CONF"
+                  }
+                done
+              fi
 
-                echo "DIAG: config after insertion:"
-                grep -n "cotizar\|location" "$NGINX_CONF" 2>/dev/null || true
+              echo ""
+              echo "Configs modified: $CONFIGS_MODIFIED"
 
-                # Validate and reload
+              # Validate and reload
+              if [ "$CONFIGS_MODIFIED" -gt 0 ]; then
+                echo "Validating nginx config..."
                 if nginx -t 2>&1; then
                   nginx -s reload
-                  echo "nginx reloaded with cotizar config"
+                  echo "nginx reloaded OK"
+                  sleep 2
+
+                  # Quick proxy test
+                  echo -n "Proxy test: "
+                  TEST=$(curl -sf -o /dev/null -w "%{http_code}" "http://127.0.0.1/cotizar/health" 2>/dev/null || echo "000")
+                  echo "HTTP $TEST"
+                  if [ "$TEST" = "000" ] || [ "$TEST" = "502" ]; then
+                    echo "WARN: proxy not working through nginx yet"
+                  fi
                 else
-                  echo "nginx -t FAILED! Restoring backup..."
-                  cp "$BACKUP" "$NGINX_CONF"
+                  echo "nginx -t FAILED! Restoring all backups..."
+                  for f in $CONFIGS_FOUND; do
+                    LATEST_BAK=$(ls -t "$f".bak.* 2>/dev/null | head -1)
+                    if [ -n "$LATEST_BAK" ]; then
+                      cp "$LATEST_BAK" "$f"
+                      echo "Restored: $f"
+                    fi
+                  done
                   nginx -t 2>/dev/null && nginx -s reload 2>/dev/null
-                  echo "Backup restored. Add snippet manually."
+                  echo "Backups restored. Add snippet manually."
                 fi
+              else
+                echo "WARN: no configs were modified"
               fi
             fi
 
