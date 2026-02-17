@@ -474,16 +474,13 @@ router.get('*', (_req: Request, res: Response) => {
   res.sendFile(path.join(publicPath, 'index.html'));
 });
 
-// Mount router at BASE_PATH and also at root for flexibility
+// Mount router at BASE_PATH when set (handles proxy that preserves the prefix)
+// AND always at root (handles proxy that strips the prefix, e.g. nginx proxy_pass with trailing slash)
+// This way the app works regardless of how the upstream proxy is configured.
 if (BASE_PATH) {
   app.use(BASE_PATH, router);
-  // Health check at root for platform health checks (Render, Fly, etc.)
-  app.get('/health', (_req: Request, res: Response) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() });
-  });
-} else {
-  app.use('/', router);
 }
+app.use('/', router);
 
 export function startServer(port?: number): void {
   const config = getConfig();
