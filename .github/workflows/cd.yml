@@ -267,10 +267,6 @@ jobs:
             echo ""
             echo "--- [7/8] Reverse proxy ---"
 
-            # Use docker exec (not docker cp) for ALL file ops inside
-            # the container - docker exec respects bind mounts.
-            # Wrapped in set +e so proxy config failure is non-fatal.
-
             PROXY_CONFIGURED=false
 
             if curl -sf "http://127.0.0.1/cotizar/health" 2>/dev/null | grep -q '"status"'; then
@@ -279,188 +275,287 @@ jobs:
             fi
 
             if ! $PROXY_CONFIGURED; then
-              set +e  # Non-fatal section
+              set +e  # Non-fatal: proxy config failure won't kill deploy
 
               echo "=== Configuring reverse proxy ==="
 
-              # Find nginx container
+              # Step A: Find nginx container
               NGINX_CONTAINER=""
+              echo "Docker containers:"
+              docker ps --format 'table {{.Names}}\t{{.Ports}}\t{{.Image}}' 2>/dev/null
               for p in 'licitometro.*nginx' 'nginx.*licitometro' 'nginx'; do
                 NGINX_CONTAINER=$(docker ps --format '{{.Names}}' 2>/dev/null | grep -iE "$p" | head -1)
                 [ -n "$NGINX_CONTAINER" ] && break
               done
 
               if [ -z "$NGINX_CONTAINER" ]; then
-                echo "ERROR: No nginx container found"
-                docker ps --format 'table {{.Names}}\t{{.Ports}}' 2>/dev/null
+                echo "ERROR: No nginx container found!"
               else
-                echo "Container: $NGINX_CONTAINER"
+                echo "Nginx container: $NGINX_CONTAINER"
 
-                # Host gateway IP
+                # Step B: Get host gateway IP
                 HOST_GW=$(docker inspect "$NGINX_CONTAINER" -f '{{range .NetworkSettings.Networks}}{{.Gateway}}{{end}}' 2>/dev/null | cut -c1-15)
                 [ -z "$HOST_GW" ] && HOST_GW="172.17.0.1"
-                echo "Gateway: $HOST_GW"
 
-                # Connectivity test
+                # Test connectivity
+                CONN_OK=false
                 for TIP in "$HOST_GW" "172.17.0.1" "$(hostname -I 2>/dev/null | awk '{print $1}')"; do
                   [ -z "$TIP" ] && continue
-                  if docker exec "$NGINX_CONTAINER" sh -c "wget -qO- http://${TIP}:${DEPLOY_PORT}/health 2>/dev/null || curl -sf http://${TIP}:${DEPLOY_PORT}/health 2>/dev/null" 2>/dev/null | grep -q status; then
-                    HOST_GW="$TIP"
-                    echo "Connectivity OK via $HOST_GW"
+                  HRESULT=$(docker exec "$NGINX_CONTAINER" sh -c "wget -qO- http://${TIP}:${DEPLOY_PORT}/health 2>/dev/null || curl -sf http://${TIP}:${DEPLOY_PORT}/health 2>/dev/null" 2>/dev/null)
+                  if echo "$HRESULT" | grep -q "status"; then
+                    HOST_GW="$TIP"; CONN_OK=true
+                    echo "Connectivity OK: $HOST_GW:$DEPLOY_PORT"
                     break
                   fi
                 done
-                echo "Upstream: http://$HOST_GW:$DEPLOY_PORT"
+                $CONN_OK || echo "WARN: connectivity unverified, using $HOST_GW"
 
-                # Write proxy snippet to host temp file
-                # (heredoc content indented for YAML, stripped after)
-                cat > /tmp/cotizar-proxy.inc << PROXYEOF
-            # BEGIN COTIZAR PROXY (auto-managed by cotizAR CD)
-            location ^~ /cotizar/api/ {
-                proxy_pass http://${HOST_GW}:${DEPLOY_PORT}/cotizar/api/;
-                proxy_http_version 1.1;
-                proxy_set_header Host \$host;
-                proxy_set_header X-Real-IP \$remote_addr;
-                proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-                proxy_set_header X-Forwarded-Proto \$scheme;
-                proxy_read_timeout 30s;
-            }
-            location ^~ /cotizar/config/ {
-                proxy_pass http://${HOST_GW}:${DEPLOY_PORT}/cotizar/config/;
-                proxy_http_version 1.1;
-                proxy_set_header Host \$host;
-                proxy_set_header X-Real-IP \$remote_addr;
-            }
-            location ^~ /cotizar/health {
-                proxy_pass http://${HOST_GW}:${DEPLOY_PORT}/health;
-                proxy_http_version 1.1;
-            }
-            location ^~ /cotizar {
-                proxy_pass http://${HOST_GW}:${DEPLOY_PORT}/cotizar;
-                proxy_http_version 1.1;
-                proxy_set_header Host \$host;
-                proxy_set_header X-Real-IP \$remote_addr;
-                proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-                proxy_set_header X-Forwarded-Proto \$scheme;
-            }
-            # END COTIZAR PROXY
-            PROXYEOF
-                echo "Snippet written ($(wc -l < /tmp/cotizar-proxy.inc) lines)"
-                cat /tmp/cotizar-proxy.inc | head -3
+                # Step C: Dump the FULL nginx config to understand structure
+                echo ""
+                echo "=== Nginx config dump ==="
+                docker exec "$NGINX_CONTAINER" nginx -T 2>&1 > /tmp/nginx-full-dump.txt
+                echo "Full dump: $(wc -l < /tmp/nginx-full-dump.txt) lines"
 
-                # Write snippet INTO container via docker exec (bind-mount safe)
-                docker exec -i "$NGINX_CONTAINER" sh -c 'cat > /etc/nginx/cotizar-proxy.inc' < /tmp/cotizar-proxy.inc
-                SNIPPET_LINES=$(docker exec "$NGINX_CONTAINER" wc -l < /etc/nginx/cotizar-proxy.inc 2>/dev/null || echo "0")
-                echo "Snippet in container: $SNIPPET_LINES lines"
+                # Show config files and key directives
+                echo "Config files:"
+                grep "# configuration file" /tmp/nginx-full-dump.txt 2>/dev/null
+                echo "Server blocks:"
+                grep -n "server_name\|listen\|location\|proxy_pass\|root\|try_files" /tmp/nginx-full-dump.txt 2>/dev/null | head -30
+                echo ""
 
-                # Find config file with location blocks
+                # Find the config file that has the server block with location /
                 CONF_FILE=""
-                for f in $(docker exec "$NGINX_CONTAINER" sh -c "nginx -T 2>&1 | grep '# configuration file' | sed 's/.*file //' | sed 's/://'" 2>/dev/null); do
-                  if docker exec "$NGINX_CONTAINER" grep -q "location" "$f" 2>/dev/null; then
-                    CONF_FILE="$f"
-                    break
-                  fi
-                done
-                if [ -z "$CONF_FILE" ]; then
-                  for f in /etc/nginx/conf.d/default.conf /etc/nginx/conf.d/app.conf; do
-                    if docker exec "$NGINX_CONTAINER" test -f "$f" 2>/dev/null; then
-                      CONF_FILE="$f"; break
-                    fi
-                  done
-                fi
-                [ -z "$CONF_FILE" ] && CONF_FILE="/etc/nginx/conf.d/default.conf"
-                echo "Config: $CONF_FILE"
-                docker exec "$NGINX_CONTAINER" grep -n "location\|include" "$CONF_FILE" 2>/dev/null | head -10 || true
-
-                # Add include directive if not present
-                HAS_INCLUDE=$(docker exec "$NGINX_CONTAINER" grep -c "cotizar-proxy.inc" "$CONF_FILE" 2>/dev/null || echo "0")
-                if [ "$HAS_INCLUDE" -gt 0 ]; then
-                  echo "Include already present"
-                else
-                  echo "Adding include directive..."
-                  docker exec "$NGINX_CONTAINER" cp "$CONF_FILE" "${CONF_FILE}.bak" 2>/dev/null
-
-                  # Try: before 'location / {'
-                  docker exec "$NGINX_CONTAINER" sed -i \
-                    '/^[[:space:]]*location[[:space:]][[:space:]]*\/[[:space:]]*{/i\    include /etc/nginx/cotizar-proxy.inc;' \
-                    "$CONF_FILE" 2>/dev/null
-
-                  ADDED=$(docker exec "$NGINX_CONTAINER" grep -c "cotizar-proxy.inc" "$CONF_FILE" 2>/dev/null || echo "0")
-                  if [ "$ADDED" -gt 0 ]; then
-                    echo "  Inserted before 'location / {'"
-                  else
-                    # Try: before first 'location' line
-                    FIRST_LOC=$(docker exec "$NGINX_CONTAINER" grep -n "^[[:space:]]*location" "$CONF_FILE" 2>/dev/null | head -1 | cut -d: -f1)
-                    if [ -n "$FIRST_LOC" ]; then
-                      docker exec "$NGINX_CONTAINER" sed -i \
-                        "${FIRST_LOC}i\\    include /etc/nginx/cotizar-proxy.inc;" \
-                        "$CONF_FILE" 2>/dev/null
-                      echo "  Inserted at line $FIRST_LOC"
-                    fi
-                    ADDED=$(docker exec "$NGINX_CONTAINER" grep -c "cotizar-proxy.inc" "$CONF_FILE" 2>/dev/null || echo "0")
-                  fi
-
-                  if [ "$ADDED" -eq 0 ]; then
-                    echo "  Sed failed. Using python fallback..."
-                    docker exec "$NGINX_CONTAINER" cat "$CONF_FILE" > /tmp/nginx-orig.conf 2>/dev/null
-                    if [ -f /tmp/nginx-orig.conf ] && [ -s /tmp/nginx-orig.conf ]; then
-                      cat > /tmp/inject_include.py << 'INCLPYEOF'
-            import re, sys
-            with open('/tmp/nginx-orig.conf') as f:
-                c = f.read()
-            c = re.sub(r'[^\n]*cotizar-proxy\.inc[^\n]*\n?', '', c)
-            m = re.search(r'^([ \t]*)(location\s)', c, re.MULTILINE)
-            if m:
-                inc = m.group(1) + 'include /etc/nginx/cotizar-proxy.inc;\n'
-                c = c[:m.start()] + inc + c[m.start():]
-                with open('/tmp/nginx-modified.conf', 'w') as f:
-                    f.write(c)
-                print('OK: inserted at pos', m.start())
-            else:
-                print('ERROR: no location block found')
-                sys.exit(1)
-            INCLPYEOF
-                      python3 /tmp/inject_include.py
-                      if [ -f /tmp/nginx-modified.conf ]; then
-                        docker exec -i "$NGINX_CONTAINER" sh -c "cat > $CONF_FILE" < /tmp/nginx-modified.conf
-                        echo "  Wrote modified config via docker exec"
+                CURRENT_FILE=""
+                while IFS= read -r line; do
+                  case "$line" in
+                    *"# configuration file"*)
+                      CURRENT_FILE=$(echo "$line" | sed 's/.*file //' | sed 's/://')
+                      ;;
+                    *"location / {"*|*"location / "*)
+                      if [ -n "$CURRENT_FILE" ] && [ "$CURRENT_FILE" != "/etc/nginx/nginx.conf" ]; then
+                        CONF_FILE="$CURRENT_FILE"
+                        echo "Found 'location /' in: $CONF_FILE"
+                        break
                       fi
-                    fi
-                  fi
+                      ;;
+                  esac
+                done < /tmp/nginx-full-dump.txt
+
+                # If no conf.d file has location /, check nginx.conf itself
+                if [ -z "$CONF_FILE" ]; then
+                  CURRENT_FILE=""
+                  while IFS= read -r line; do
+                    case "$line" in
+                      *"# configuration file"*)
+                        CURRENT_FILE=$(echo "$line" | sed 's/.*file //' | sed 's/://')
+                        ;;
+                      *"location"*)
+                        if [ -n "$CURRENT_FILE" ]; then
+                          CONF_FILE="$CURRENT_FILE"
+                          echo "Found 'location' in: $CONF_FILE"
+                          break
+                        fi
+                        ;;
+                    esac
+                  done < /tmp/nginx-full-dump.txt
                 fi
 
-                # Show final config state
-                echo ""
-                echo "Config after modification:"
-                docker exec "$NGINX_CONTAINER" grep -n "cotizar\|include\|location" "$CONF_FILE" 2>/dev/null | head -15
+                [ -z "$CONF_FILE" ] && CONF_FILE="/etc/nginx/conf.d/default.conf"
+                echo "Target config: $CONF_FILE"
 
-                # Test and reload
-                echo ""
-                echo "Testing nginx config..."
-                if docker exec "$NGINX_CONTAINER" nginx -t 2>&1; then
-                  docker exec "$NGINX_CONTAINER" nginx -s reload
-                  echo "NGINX RELOADED"
-                  sleep 3
+                # Step D: Read the target config from container
+                docker exec "$NGINX_CONTAINER" cat "$CONF_FILE" > /tmp/nginx-target.conf 2>/dev/null
+                echo "Read $(wc -l < /tmp/nginx-target.conf 2>/dev/null || echo 0) lines from $CONF_FILE"
+                echo "Contents:"
+                cat /tmp/nginx-target.conf 2>/dev/null | head -50
+                echo "..."
 
-                  VERIFY=$(curl -sf "http://127.0.0.1/cotizar/health" 2>/dev/null || echo "")
-                  if echo "$VERIFY" | grep -q '"status"'; then
-                    echo "PROXY VERIFIED OK"
-                    PROXY_CONFIGURED=true
+                # Step E: Use Python to inject cotizar proxy blocks
+                cat > /tmp/inject_cotizar.py << 'COTIZPYEOF'
+            import re, sys, os
+
+            HOST_GW = os.environ.get('HOST_GW_VAL', '172.17.0.1')
+            PORT = os.environ.get('DEPLOY_PORT_VAL', '3001')
+            UPSTREAM = f'{HOST_GW}:{PORT}'
+
+            COTIZAR_BLOCK = f"""
+            # BEGIN COTIZAR PROXY (auto-managed by cotizAR CD)
+            location ^~ /cotizar/api/ {{
+                proxy_pass http://{UPSTREAM}/cotizar/api/;
+                proxy_http_version 1.1;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                proxy_read_timeout 30s;
+            }}
+            location ^~ /cotizar/config/ {{
+                proxy_pass http://{UPSTREAM}/cotizar/config/;
+                proxy_http_version 1.1;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+            }}
+            location ^~ /cotizar/health {{
+                proxy_pass http://{UPSTREAM}/health;
+                proxy_http_version 1.1;
+            }}
+            location ^~ /cotizar {{
+                proxy_pass http://{UPSTREAM}/cotizar;
+                proxy_http_version 1.1;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+            }}
+            # END COTIZAR PROXY"""
+
+            # Dedent
+            lines = COTIZAR_BLOCK.split('\n')
+            non_empty = [l for l in lines if l.strip()]
+            if non_empty:
+                mi = min(len(l) - len(l.lstrip()) for l in non_empty)
+                COTIZAR_BLOCK = '\n'.join(
+                    l[mi:] if len(l) >= mi else l for l in lines
+                )
+
+            with open('/tmp/nginx-target.conf', 'r') as f:
+                content = f.read()
+
+            if not content.strip():
+                print('ERROR: config is empty')
+                sys.exit(1)
+
+            print(f'Input: {len(content)} bytes')
+
+            # Remove old cotizar blocks
+            content = re.sub(
+                r'\s*# BEGIN COTIZAR PROXY.*?# END COTIZAR PROXY\s*',
+                '\n', content, flags=re.DOTALL
+            )
+            # Remove standalone cotizar locations
+            raw = content.split('\n')
+            clean = []
+            skip = 0
+            for line in raw:
+                s = line.strip()
+                if skip == 0 and re.match(r'location\s+.*?/cotizar', s):
+                    skip = line.count('{') - line.count('}')
+                    if skip <= 0: skip = 0
+                    continue
+                if skip > 0:
+                    skip += line.count('{') - line.count('}')
+                    if skip <= 0: skip = 0
+                    continue
+                clean.append(line)
+            content = '\n'.join(clean)
+            content = re.sub(r'\n{3,}', '\n\n', content)
+            # Remove old includes
+            content = re.sub(
+                r'[^\n]*cotizar-proxy\.inc[^\n]*\n?', '', content
+            )
+
+            # Find insertion point
+            m = re.search(r'^([ \t]*)(location\s+/\s*\{)', content, re.MULTILINE)
+            if m:
+                pos = m.start()
+                indent = m.group(1)
+                block = '\n'.join(
+                    indent + l.strip() if l.strip() else ''
+                    for l in COTIZAR_BLOCK.strip().split('\n')
+                )
+                content = content[:pos] + block + '\n\n' + content[pos:]
+                print(f'Inserted before "location /" at char {pos}')
+            else:
+                # Before closing brace of first server block
+                srv = re.search(r'server\s*\{', content)
+                if srv:
+                    depth = 0
+                    for i in range(srv.start(), len(content)):
+                        if content[i] == '{': depth += 1
+                        elif content[i] == '}':
+                            depth -= 1
+                            if depth == 0:
+                                b = '\n' + COTIZAR_BLOCK.strip() + '\n'
+                                content = content[:i] + b + content[i:]
+                                print(f'Inserted at server block end pos {i}')
+                                break
+                else:
+                    print('ERROR: no server block found')
+                    print('Content preview:')
+                    print(content[:500])
+                    sys.exit(1)
+
+            with open('/tmp/nginx-modified.conf', 'w') as f:
+                f.write(content)
+
+            print(f'Output: {len(content)} bytes')
+            for i, line in enumerate(content.split('\n'), 1):
+                if 'cotizar' in line.lower() or '^~' in line:
+                    print(f'  L{i}: {line.rstrip()}')
+            print('INJECT OK')
+            COTIZPYEOF
+                echo "Running config injection..."
+                HOST_GW_VAL="$HOST_GW" DEPLOY_PORT_VAL="$DEPLOY_PORT" python3 /tmp/inject_cotizar.py
+                PYEXIT=$?
+                echo "Python exit: $PYEXIT"
+
+                if [ "$PYEXIT" -eq 0 ] && [ -f /tmp/nginx-modified.conf ] && [ -s /tmp/nginx-modified.conf ]; then
+                  echo "Modified config preview:"
+                  grep -n "cotizar\|location\|include" /tmp/nginx-modified.conf 2>/dev/null | head -20
+
+                  # Step F: Write modified config back via base64+docker exec
+                  # This avoids stdin piping issues AND works with bind mounts
+                  B64=$(base64 -w0 /tmp/nginx-modified.conf)
+                  echo "Base64 size: ${#B64} chars"
+                  docker exec "$NGINX_CONTAINER" sh -c "echo '$B64' | base64 -d > $CONF_FILE"
+                  echo "Wrote config via base64+docker exec"
+
+                  # Verify write
+                  WRITTEN=$(docker exec "$NGINX_CONTAINER" grep -c "cotizar" "$CONF_FILE" 2>/dev/null || echo "0")
+                  echo "Verify: $WRITTEN lines with 'cotizar' in container config"
+
+                  if [ "$WRITTEN" -gt 0 ]; then
+                    # Test nginx config
+                    echo ""
+                    echo "Testing nginx config..."
+                    NGINX_TEST=$(docker exec "$NGINX_CONTAINER" nginx -t 2>&1)
+                    echo "$NGINX_TEST"
+
+                    if echo "$NGINX_TEST" | grep -q "successful"; then
+                      docker exec "$NGINX_CONTAINER" nginx -s reload
+                      echo "NGINX RELOADED"
+                      sleep 3
+
+                      # Verify proxy
+                      VERIFY=$(curl -sf "http://127.0.0.1/cotizar/health" 2>/dev/null || echo "")
+                      if echo "$VERIFY" | grep -q '"status"'; then
+                        echo "PROXY VERIFIED OK"
+                        PROXY_CONFIGURED=true
+                      else
+                        echo "PROXY NOT WORKING after reload"
+                        echo "  curl response: $(curl -sf -o /dev/null -w '%{http_code}' http://127.0.0.1/cotizar/health 2>/dev/null)"
+                        echo "  Content-Type: $(curl -sf -D- http://127.0.0.1/cotizar/health 2>/dev/null | grep -i content-type | head -1)"
+                        echo "  Active nginx config (cotizar related):"
+                        docker exec "$NGINX_CONTAINER" nginx -T 2>&1 | grep -B2 -A5 "cotizar" | head -40
+                      fi
+                    else
+                      echo "NGINX CONFIG INVALID - restoring"
+                      docker exec "$NGINX_CONTAINER" cat "${CONF_FILE}.bak" > /dev/null 2>&1 && \
+                        docker exec "$NGINX_CONTAINER" cp "${CONF_FILE}.bak" "$CONF_FILE" 2>/dev/null
+                      docker exec "$NGINX_CONTAINER" nginx -s reload 2>/dev/null
+                    fi
                   else
-                    echo "PROXY NOT WORKING after reload"
-                    echo "  Response: $(curl -sf -o /dev/null -w 'HTTP %{http_code}' http://127.0.0.1/cotizar/health 2>/dev/null || echo 'none')"
-                    echo "  Nginx active config (cotizar):"
-                    docker exec "$NGINX_CONTAINER" nginx -T 2>&1 | grep -B1 -A5 "cotizar" | head -30 || true
+                    echo "ERROR: base64 write failed - cotizar not in config"
+                    echo "Checking if file is writable..."
+                    docker exec "$NGINX_CONTAINER" ls -la "$CONF_FILE" 2>/dev/null
+                    docker exec "$NGINX_CONTAINER" mount 2>/dev/null | grep nginx | head -5
                   fi
                 else
-                  echo "CONFIG TEST FAILED - restoring"
-                  docker exec "$NGINX_CONTAINER" sh -c "[ -f ${CONF_FILE}.bak ] && cp ${CONF_FILE}.bak $CONF_FILE" 2>/dev/null
-                  docker exec "$NGINX_CONTAINER" sed -i '/cotizar-proxy.inc/d' "$CONF_FILE" 2>/dev/null
-                  docker exec "$NGINX_CONTAINER" nginx -s reload 2>/dev/null
+                  echo "Python injection failed"
                 fi
               fi
 
-              set -euo pipefail  # Re-enable strict mode
+              set -euo pipefail
 
               echo ""
               if $PROXY_CONFIGURED; then
