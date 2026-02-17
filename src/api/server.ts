@@ -1,4 +1,4 @@
-import express, { Request, Response } from 'express';
+import express, { Request, Response, Router } from 'express';
 import cors from 'cors';
 import path, { dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -19,19 +19,31 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Serve static files from public directory
+// BASE_PATH support for sub-path deployments (e.g. /cotizar)
+const BASE_PATH = (process.env.BASE_PATH || '').replace(/\/+$/, '');
+
 const publicPath = path.join(process.cwd(), 'public');
-app.use(express.static(publicPath));
+
+// Create a router with all app routes
+const router = Router();
 
 // Health check
-app.get('/health', (_req: Request, res: Response) => {
+router.get('/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
+// Inject BASE_PATH into index.html so the frontend knows where the API is
+router.get('/', (_req: Request, res: Response) => {
+  res.sendFile(path.join(publicPath, 'index.html'));
+});
+
+// Serve static files
+router.use(express.static(publicPath));
 
 // ============ TENDERS ============
 
 // List tenders
-app.get('/api/tenders', async (req: Request, res: Response) => {
+router.get('/api/tenders', async (req: Request, res: Response) => {
   try {
     const { status, category, region, agency } = req.query;
     const tenders = await tenderService.list({
@@ -47,7 +59,7 @@ app.get('/api/tenders', async (req: Request, res: Response) => {
 });
 
 // Search tenders
-app.get('/api/tenders/search', async (req: Request, res: Response) => {
+router.get('/api/tenders/search', async (req: Request, res: Response) => {
   try {
     const { q } = req.query;
     if (!q) {
@@ -61,7 +73,7 @@ app.get('/api/tenders/search', async (req: Request, res: Response) => {
 });
 
 // Get tender categories (MUST be before :id route)
-app.get('/api/tenders/meta/categories', async (_req: Request, res: Response) => {
+router.get('/api/tenders/meta/categories', async (_req: Request, res: Response) => {
   try {
     const categories = await tenderService.getCategories();
     res.json(categories);
@@ -71,7 +83,7 @@ app.get('/api/tenders/meta/categories', async (_req: Request, res: Response) => 
 });
 
 // Get tender regions (MUST be before :id route)
-app.get('/api/tenders/meta/regions', async (_req: Request, res: Response) => {
+router.get('/api/tenders/meta/regions', async (_req: Request, res: Response) => {
   try {
     const regions = await tenderService.getRegions();
     res.json(regions);
@@ -81,7 +93,7 @@ app.get('/api/tenders/meta/regions', async (_req: Request, res: Response) => {
 });
 
 // Get tender by ID (after all specific /api/tenders/* routes)
-app.get('/api/tenders/:id', async (req: Request, res: Response) => {
+router.get('/api/tenders/:id', async (req: Request, res: Response) => {
   try {
     const tender = await tenderService.getById(req.params.id);
     if (!tender) {
@@ -96,7 +108,7 @@ app.get('/api/tenders/:id', async (req: Request, res: Response) => {
 // ============ BIDS ============
 
 // List bids
-app.get('/api/bids', async (req: Request, res: Response) => {
+router.get('/api/bids', async (req: Request, res: Response) => {
   try {
     const { tenderId, status, companyId } = req.query;
     const bids = await bidService.list({
@@ -111,7 +123,7 @@ app.get('/api/bids', async (req: Request, res: Response) => {
 });
 
 // Get bid by ID
-app.get('/api/bids/:id', async (req: Request, res: Response) => {
+router.get('/api/bids/:id', async (req: Request, res: Response) => {
   try {
     const bid = await bidService.getById(req.params.id);
     if (!bid) {
@@ -124,7 +136,7 @@ app.get('/api/bids/:id', async (req: Request, res: Response) => {
 });
 
 // Create bid
-app.post('/api/bids', async (req: Request, res: Response) => {
+router.post('/api/bids', async (req: Request, res: Response) => {
   try {
     const { tenderId } = req.body;
     if (!tenderId) {
@@ -138,7 +150,7 @@ app.post('/api/bids', async (req: Request, res: Response) => {
 });
 
 // Analyze bid
-app.post('/api/bids/:id/analyze', async (req: Request, res: Response) => {
+router.post('/api/bids/:id/analyze', async (req: Request, res: Response) => {
   try {
     const analysis = await bidService.analyze(req.params.id);
     res.json(analysis);
@@ -148,7 +160,7 @@ app.post('/api/bids/:id/analyze', async (req: Request, res: Response) => {
 });
 
 // Calculate pricing
-app.post('/api/bids/:id/calculate', async (req: Request, res: Response) => {
+router.post('/api/bids/:id/calculate', async (req: Request, res: Response) => {
   try {
     const costs = req.body;
     const pricing = await bidService.calculatePricing(req.params.id, costs);
@@ -159,7 +171,7 @@ app.post('/api/bids/:id/calculate', async (req: Request, res: Response) => {
 });
 
 // Generate document
-app.post('/api/bids/:id/documents', async (req: Request, res: Response) => {
+router.post('/api/bids/:id/documents', async (req: Request, res: Response) => {
   try {
     const { type } = req.body;
     if (!type) {
@@ -175,7 +187,7 @@ app.post('/api/bids/:id/documents', async (req: Request, res: Response) => {
 // ============ PATTERNS ============
 
 // Search patterns
-app.get('/api/patterns/search', async (req: Request, res: Response) => {
+router.get('/api/patterns/search', async (req: Request, res: Response) => {
   try {
     const { q } = req.query;
     if (!q) {
@@ -189,7 +201,7 @@ app.get('/api/patterns/search', async (req: Request, res: Response) => {
 });
 
 // List patterns
-app.get('/api/patterns', async (_req: Request, res: Response) => {
+router.get('/api/patterns', async (_req: Request, res: Response) => {
   try {
     const patterns = await patternService.list();
     res.json(patterns);
@@ -201,7 +213,7 @@ app.get('/api/patterns', async (_req: Request, res: Response) => {
 // ============ MARKET ============
 
 // Get material prices
-app.get('/api/market/materials', async (req: Request, res: Response) => {
+router.get('/api/market/materials', async (req: Request, res: Response) => {
   try {
     const { category } = req.query;
     const prices = await marketService.getMaterialPrices(category as string);
@@ -212,7 +224,7 @@ app.get('/api/market/materials', async (req: Request, res: Response) => {
 });
 
 // Get currencies
-app.get('/api/market/currencies', async (_req: Request, res: Response) => {
+router.get('/api/market/currencies', async (_req: Request, res: Response) => {
   try {
     const currencies = await marketService.getCurrencies();
     res.json(currencies);
@@ -222,7 +234,7 @@ app.get('/api/market/currencies', async (_req: Request, res: Response) => {
 });
 
 // Get inflation
-app.get('/api/market/inflation', async (_req: Request, res: Response) => {
+router.get('/api/market/inflation', async (_req: Request, res: Response) => {
   try {
     const inflation = await marketService.getInflation();
     res.json(inflation);
@@ -232,7 +244,7 @@ app.get('/api/market/inflation', async (_req: Request, res: Response) => {
 });
 
 // Get economic context
-app.get('/api/market/context', async (_req: Request, res: Response) => {
+router.get('/api/market/context', async (_req: Request, res: Response) => {
   try {
     const context = await marketService.getEconomicContext();
     res.json(context);
@@ -242,7 +254,7 @@ app.get('/api/market/context', async (_req: Request, res: Response) => {
 });
 
 // Update market data
-app.post('/api/market/update', async (_req: Request, res: Response) => {
+router.post('/api/market/update', async (_req: Request, res: Response) => {
   try {
     const result = await marketService.updateMarketData();
     res.json(result);
@@ -254,7 +266,7 @@ app.post('/api/market/update', async (_req: Request, res: Response) => {
 // ============ LEGAL ============
 
 // Analyze legal requirements
-app.post('/api/legal/analyze', async (req: Request, res: Response) => {
+router.post('/api/legal/analyze', async (req: Request, res: Response) => {
   try {
     const { tenderId } = req.body;
     const tender = await tenderService.getById(tenderId);
@@ -269,7 +281,7 @@ app.post('/api/legal/analyze', async (req: Request, res: Response) => {
 });
 
 // Generate compliance report
-app.post('/api/legal/report', async (req: Request, res: Response) => {
+router.post('/api/legal/report', async (req: Request, res: Response) => {
   try {
     const { tenderId } = req.body;
     const tender = await tenderService.getById(tenderId);
@@ -286,7 +298,7 @@ app.post('/api/legal/report', async (req: Request, res: Response) => {
 // ============ TRACKING ============
 
 // Get tracking for tender
-app.get('/api/tracking/:tenderId', async (req: Request, res: Response) => {
+router.get('/api/tracking/:tenderId', async (req: Request, res: Response) => {
   try {
     const tracking = await trackingService.getTracking(req.params.tenderId);
     if (!tracking) {
@@ -305,7 +317,7 @@ app.get('/api/tracking/:tenderId', async (req: Request, res: Response) => {
 });
 
 // Get timeline
-app.get('/api/tracking/:tenderId/timeline', async (req: Request, res: Response) => {
+router.get('/api/tracking/:tenderId/timeline', async (req: Request, res: Response) => {
   try {
     const timeline = await trackingService.getTimeline(req.params.tenderId);
     res.json(timeline);
@@ -315,7 +327,7 @@ app.get('/api/tracking/:tenderId/timeline', async (req: Request, res: Response) 
 });
 
 // Get alerts
-app.get('/api/tracking/:tenderId/alerts', async (req: Request, res: Response) => {
+router.get('/api/tracking/:tenderId/alerts', async (req: Request, res: Response) => {
   try {
     const alerts = await trackingService.getAlerts(req.params.tenderId);
     res.json(alerts);
@@ -327,7 +339,7 @@ app.get('/api/tracking/:tenderId/alerts', async (req: Request, res: Response) =>
 // ============ COMPETITIVE ============
 
 // Analyze competitiveness
-app.post('/api/competitive/analyze', async (req: Request, res: Response) => {
+router.post('/api/competitive/analyze', async (req: Request, res: Response) => {
   try {
     const { tenderId } = req.body;
     const tender = await tenderService.getById(tenderId);
@@ -342,7 +354,7 @@ app.post('/api/competitive/analyze', async (req: Request, res: Response) => {
 });
 
 // Get price recommendation
-app.post('/api/competitive/price', async (req: Request, res: Response) => {
+router.post('/api/competitive/price', async (req: Request, res: Response) => {
   try {
     const { tenderId, margin } = req.body;
     const tender = await tenderService.getById(tenderId);
@@ -362,7 +374,7 @@ app.post('/api/competitive/price', async (req: Request, res: Response) => {
 });
 
 // Get competitor analysis
-app.get('/api/competitive/competitors/:region', async (req: Request, res: Response) => {
+router.get('/api/competitive/competitors/:region', async (req: Request, res: Response) => {
   try {
     const analysis = await competitiveService.getCompetitorAnalysis(req.params.region);
     res.json(analysis);
@@ -374,7 +386,7 @@ app.get('/api/competitive/competitors/:region', async (req: Request, res: Respon
 // ============ LICITOMETRO ============
 
 // Search licitometro.ar
-app.get('/api/licitometro/search', async (req: Request, res: Response) => {
+router.get('/api/licitometro/search', async (req: Request, res: Response) => {
   try {
     const { q, estado, jurisdiccion, rubro, organismo, fecha_desde, fecha_hasta, monto_min, monto_max, page, limit } = req.query;
     const result = await licitometroService.search({
@@ -397,7 +409,7 @@ app.get('/api/licitometro/search', async (req: Request, res: Response) => {
 });
 
 // Sync from licitometro.ar
-app.post('/api/licitometro/sync', async (req: Request, res: Response) => {
+router.post('/api/licitometro/sync', async (req: Request, res: Response) => {
   try {
     const params = req.body;
     const result = await licitometroService.sync(params);
@@ -408,7 +420,7 @@ app.post('/api/licitometro/sync', async (req: Request, res: Response) => {
 });
 
 // Get licitometro status
-app.get('/api/licitometro/status', (_req: Request, res: Response) => {
+router.get('/api/licitometro/status', (_req: Request, res: Response) => {
   try {
     const status = licitometroService.getStatus();
     res.json(status);
@@ -418,7 +430,7 @@ app.get('/api/licitometro/status', (_req: Request, res: Response) => {
 });
 
 // Get jurisdicciones
-app.get('/api/licitometro/jurisdicciones', async (_req: Request, res: Response) => {
+router.get('/api/licitometro/jurisdicciones', async (_req: Request, res: Response) => {
   try {
     const jurisdicciones = await licitometroService.getJurisdicciones();
     res.json(jurisdicciones);
@@ -428,7 +440,7 @@ app.get('/api/licitometro/jurisdicciones', async (_req: Request, res: Response) 
 });
 
 // Get rubros
-app.get('/api/licitometro/rubros', async (_req: Request, res: Response) => {
+router.get('/api/licitometro/rubros', async (_req: Request, res: Response) => {
   try {
     const rubros = await licitometroService.getRubros();
     res.json(rubros);
@@ -440,7 +452,7 @@ app.get('/api/licitometro/rubros', async (_req: Request, res: Response) => {
 // ============ CONFIG ============
 
 // Get config
-app.get('/api/config', (_req: Request, res: Response) => {
+router.get('/api/config', (_req: Request, res: Response) => {
   try {
     const config = getConfig();
     // Remove sensitive data
@@ -457,10 +469,21 @@ app.get('/api/config', (_req: Request, res: Response) => {
   }
 });
 
-// Serve index.html for all other routes (SPA support)
-app.get('*', (_req: Request, res: Response) => {
+// SPA fallback: serve index.html for unknown routes
+router.get('*', (_req: Request, res: Response) => {
   res.sendFile(path.join(publicPath, 'index.html'));
 });
+
+// Mount router at BASE_PATH and also at root for flexibility
+if (BASE_PATH) {
+  app.use(BASE_PATH, router);
+  // Health check at root for platform health checks (Render, Fly, etc.)
+  app.get('/health', (_req: Request, res: Response) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  });
+} else {
+  app.use('/', router);
+}
 
 export function startServer(port?: number): void {
   const config = getConfig();
@@ -468,8 +491,12 @@ export function startServer(port?: number): void {
   const host = process.env.API_HOST || config.api.host || '0.0.0.0';
 
   app.listen(actualPort, host, () => {
-    console.log(`cotizAR API server running on http://${host}:${actualPort}`);
-    console.log(`Web UI available at http://localhost:${actualPort}`);
+    const base = BASE_PATH || '';
+    console.log(`cotizAR API server running on http://${host}:${actualPort}${base}`);
+    console.log(`Web UI available at http://localhost:${actualPort}${base}/`);
+    if (BASE_PATH) {
+      console.log(`BASE_PATH: ${BASE_PATH}`);
+    }
   });
 }
 

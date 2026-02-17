@@ -649,7 +649,9 @@
 
     <script>
         // === CONFIG ===
-        const API_URL = window.location.origin + '/api';
+        // Detect base path for sub-path deployments (e.g. /cotizar on licitometro.ar)
+        const _basePath = window.location.pathname.replace(/\/$/, '');
+        const API_URL = _basePath + '/api';
         let tendersCache = [];
         let bidsCache = [];
         let currentDetailTenderId = null;
