@@ -19,6 +19,9 @@ env:
   DEPLOY_DIR: /opt/cotizar
   DEPLOY_PORT: 3001
 
+permissions:
+  contents: read
+
 jobs:
   ci:
     name: CI Checks
@@ -62,11 +65,25 @@ jobs:
 
             BRANCH="${{ inputs.deploy_branch || github.ref_name }}"
 
-            # Configure git to use token for GitHub access
-            git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
             echo "=========================================="
             echo "  cotizAR CD - branch: $BRANCH"
+            echo "  GH_TOKEN length: ${#GH_TOKEN}"
             echo "=========================================="
+
+            # Validate token
+            if [ -z "$GH_TOKEN" ] || [ "${#GH_TOKEN}" -lt 10 ]; then
+              echo "ERROR: GH_TOKEN is empty or too short!"
+              echo "Check that github.token is properly passed via envs parameter"
+              exit 1
+            fi
+
+            # Configure git auth - clear any stale credentials
+            git config --global --unset-all credential.helper 2>/dev/null || true
+            git config --global --unset-all "url.https://x-access-token" 2>/dev/null || true
+            git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
+
+            # Build authenticated URL for direct use
+            REPO_URL="https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
 
             # ==========================================================
             # STEP 0: Pre-flight - licitometro alive?
@@ -118,10 +135,14 @@ jobs:
             if [ ! -d "$DEPLOY_DIR/.git" ]; then
               echo "First deploy - cloning..."
               mkdir -p "$(dirname $DEPLOY_DIR)"
-              git clone -b "$BRANCH" "https://github.com/${{ github.repository }}.git" "$DEPLOY_DIR"
+              git clone -b "$BRANCH" "$REPO_URL" "$DEPLOY_DIR"
             fi
 
             cd "$DEPLOY_DIR"
+
+            # Ensure remote uses authenticated URL
+            git remote set-url origin "$REPO_URL" 2>/dev/null || true
+
             PREV_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "none")
             echo "Previous: $PREV_COMMIT"
 
