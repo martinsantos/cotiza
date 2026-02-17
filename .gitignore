@@ -3,4 +3,5 @@ dist/
 *.tgz
 .env
 bids/
+data/
 *.log

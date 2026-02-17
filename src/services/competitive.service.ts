@@ -1,57 +1,7 @@
 import { Tender, CompetitiveAnalysis, HistoricalBid, Competitor, Benchmark, CompetitiveScore } from '../types/index.js';
+import { getDb } from '../db/index.js';
 
 export class CompetitiveService {
-  private historicalBids: HistoricalBid[] = [];
-  private competitors: Competitor[] = [];
-
-  constructor() {
-    this.initializeSampleData();
-  }
-
-  private initializeSampleData() {
-    // Sample historical bids
-    this.historicalBids = [
-      { tenderId: 'lic-001', amount: 45000000, winner: true, year: 2023 },
-      { tenderId: 'lic-001', amount: 48000000, winner: false, year: 2023 },
-      { tenderId: 'lic-001', amount: 52000000, winner: false, year: 2023 },
-      { tenderId: 'lic-002', amount: 230000000, winner: true, year: 2023 },
-      { tenderId: 'lic-002', amount: 245000000, winner: false, year: 2023 },
-      { tenderId: 'lic-003', amount: 165000000, winner: true, year: 2023 },
-      { tenderId: 'lic-003', amount: 175000000, winner: false, year: 2023 },
-      { tenderId: 'lic-003', amount: 180000000, winner: false, year: 2023 },
-      { tenderId: 'lic-001', amount: 42000000, winner: true, year: 2022 },
-      { tenderId: 'lic-001', amount: 45000000, winner: false, year: 2022 }
-    ];
-
-    // Sample competitors
-    this.competitors = [
-      {
-        name: 'Empresa A SA',
-        winRate: 0.35,
-        averageBid: 47000000,
-        zone: 'CABA'
-      },
-      {
-        name: 'Empresa B SA',
-        winRate: 0.28,
-        averageBid: 49000000,
-        zone: 'CABA'
-      },
-      {
-        name: 'Empresa C SA',
-        winRate: 0.22,
-        averageBid: 51000000,
-        zone: 'Buenos Aires'
-      },
-      {
-        name: 'Empresa D SA',
-        winRate: 0.15,
-        averageBid: 44000000,
-        zone: 'CABA'
-      }
-    ];
-  }
-
   async analyze(tender: Tender): Promise<CompetitiveAnalysis> {
     const historicalData = this.getHistoricalBids(tender.category);
     const competitors = this.getCompetitors(tender.region);
@@ -68,22 +18,32 @@ export class CompetitiveService {
   }
 
   private getHistoricalBids(category: string): HistoricalBid[] {
-    // Filter by similar category
-    return this.historicalBids.filter(bid => 
-      bid.year >= 2022
-    ).slice(0, 10);
+    const db = getDb();
+    const rows = db.prepare('SELECT * FROM historical_bids WHERE year >= 2022').all() as any[];
+    return rows.slice(0, 10).map(r => ({
+      tenderId: r.tender_id,
+      amount: r.amount,
+      winner: r.winner === 1,
+      year: r.year,
+    }));
   }
 
   private getCompetitors(region: string): Competitor[] {
-    // Return all competitors or filter by region
-    return this.competitors.filter(c => 
-      c.zone === region || c.zone === 'CABA'
-    );
+    const db = getDb();
+    const rows = db.prepare(
+      "SELECT * FROM competitors WHERE zone = ? OR zone = 'CABA'"
+    ).all(region) as any[];
+    return rows.map(r => ({
+      name: r.name,
+      winRate: r.win_rate,
+      averageBid: r.average_bid,
+      zone: r.zone,
+    }));
   }
 
   private calculateBenchmark(tender: Tender, historical: HistoricalBid[]): Benchmark {
     const winningBids = historical.filter(b => b.winner);
-    
+
     if (winningBids.length === 0) {
       return {
         averageMarketPrice: tender.budget * 0.9,
@@ -216,8 +176,15 @@ export class CompetitiveService {
     winningRate: number;
     trends: { year: number; averagePrice: number; count: number }[];
   }> {
-    const bids = this.historicalBids.filter(b => b.year >= 2020);
-    
+    const db = getDb();
+    const rows = db.prepare('SELECT * FROM historical_bids WHERE year >= 2020').all() as any[];
+    const bids: HistoricalBid[] = rows.map(r => ({
+      tenderId: r.tender_id,
+      amount: r.amount,
+      winner: r.winner === 1,
+      year: r.year,
+    }));
+
     const totalBids = bids.length;
     const winningBids = bids.filter(b => b.winner);
     const winningRate = totalBids > 0 ? winningBids.length / totalBids : 0;

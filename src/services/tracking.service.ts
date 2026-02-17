@@ -1,18 +1,22 @@
 import { Tender, TenderTracking, TrackingMilestone, Alert } from '../types/index.js';
+import { getDb } from '../db/index.js';
 
 export class TrackingService {
-  private trackingData: Map<string, TenderTracking> = new Map();
-
   async createTracking(tender: Tender): Promise<TenderTracking> {
     const milestones = this.generateMilestones(tender);
-    
+
     const tracking: TenderTracking = {
       tenderId: tender.id,
       milestones,
       alerts: []
     };
 
-    this.trackingData.set(tender.id, tracking);
+    const db = getDb();
+    db.prepare(`
+      INSERT OR REPLACE INTO tracking (tender_id, milestones, alerts)
+      VALUES (?, ?, ?)
+    `).run(tender.id, JSON.stringify(milestones), JSON.stringify([]));
+
     return tracking;
   }
 
@@ -67,7 +71,15 @@ export class TrackingService {
   }
 
   async getTracking(tenderId: string): Promise<TenderTracking | null> {
-    return this.trackingData.get(tenderId) || null;
+    const db = getDb();
+    const row = db.prepare('SELECT * FROM tracking WHERE tender_id = ?').get(tenderId) as any;
+    if (!row) return null;
+
+    return {
+      tenderId: row.tender_id,
+      milestones: JSON.parse(row.milestones || '[]'),
+      alerts: JSON.parse(row.alerts || '[]'),
+    };
   }
 
   async updateMilestone(
@@ -76,21 +88,24 @@ export class TrackingService {
     completed: boolean,
     notes?: string
   ): Promise<TrackingMilestone | null> {
-    const tracking = this.trackingData.get(tenderId);
+    const tracking = await this.getTracking(tenderId);
     if (!tracking) return null;
 
     const milestone = tracking.milestones.find(m => m.name === milestoneName);
-    if (milestone) {
-      milestone.completed = completed;
-      if (notes) milestone.notes = notes;
-      this.trackingData.set(tenderId, tracking);
-    }
+    if (!milestone) return null;
 
-    return milestone || null;
+    milestone.completed = completed;
+    if (notes) milestone.notes = notes;
+
+    const db = getDb();
+    db.prepare('UPDATE tracking SET milestones = ? WHERE tender_id = ?')
+      .run(JSON.stringify(tracking.milestones), tenderId);
+
+    return milestone;
   }
 
   async getAlerts(tenderId: string): Promise<Alert[]> {
-    const tracking = this.trackingData.get(tenderId);
+    const tracking = await this.getTracking(tenderId);
     if (!tracking) return [];
 
     const alerts: Alert[] = [];
@@ -127,11 +142,18 @@ export class TrackingService {
   }
 
   async getAllAlerts(): Promise<Map<string, Alert[]>> {
+    const db = getDb();
+    const rows = db.prepare('SELECT * FROM tracking').all() as any[];
     const allAlerts = new Map<string, Alert[]>();
-    
-    this.trackingData.forEach((tracking, tenderId) => {
-      allAlerts.set(tenderId, this.getAlertsSync(tracking));
-    });
+
+    for (const row of rows) {
+      const tracking: TenderTracking = {
+        tenderId: row.tender_id,
+        milestones: JSON.parse(row.milestones || '[]'),
+        alerts: JSON.parse(row.alerts || '[]'),
+      };
+      allAlerts.set(row.tender_id, this.getAlertsSync(tracking));
+    }
 
     return allAlerts;
   }
@@ -160,17 +182,8 @@ export class TrackingService {
   }
 
   async markAlertRead(tenderId: string, alertIndex: number): Promise<boolean> {
-    const tracking = this.trackingData.get(tenderId);
-    if (!tracking) return false;
-
-    const alerts = await this.getAlerts(tenderId);
-    if (alertIndex >= 0 && alertIndex < alerts.length) {
-      alerts[alertIndex].read = true;
-      this.trackingData.set(tenderId, tracking);
-      return true;
-    }
-
-    return false;
+    // Alerts are dynamically calculated, not stored, so just return true
+    return true;
   }
 
   async getTimeline(tenderId: string): Promise<{
@@ -178,7 +191,7 @@ export class TrackingService {
     upcoming: TrackingMilestone[];
     summary: string;
   }> {
-    const tracking = this.trackingData.get(tenderId);
+    const tracking = await this.getTracking(tenderId);
     if (!tracking) {
       return {
         past: [],
@@ -191,7 +204,7 @@ export class TrackingService {
     const past = tracking.milestones.filter(m => new Date(m.date) < now || m.completed);
     const upcoming = tracking.milestones.filter(m => new Date(m.date) >= now && !m.completed);
 
-    const daysUntilClose = tracking.milestones.find(m => 
+    const daysUntilClose = tracking.milestones.find(m =>
       m.name === 'Presentacion de Ofertas'
     );
 
@@ -209,7 +222,7 @@ export class TrackingService {
     upcoming: string[];
     extended: string[];
   }> {
-    const tracking = this.trackingData.get(tenderId);
+    const tracking = await this.getTracking(tenderId);
     if (!tracking) {
       return { urgent: [], upcoming: [], extended: [] };
     }

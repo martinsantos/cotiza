@@ -1,166 +1,122 @@
 import { MarketData, CurrencyData, InflationData } from '../types/index.js';
+import { getDb } from '../db/index.js';
+import { dolarService } from './dolar.service.js';
+import { logger } from '../utils/logger.js';
 
 export class MarketService {
-  private materialPrices: Map<string, MarketData> = new Map();
-  private currencies: Map<string, CurrencyData> = new Map();
-  private inflation: InflationData | null = null;
-  private lastUpdate: string | null = null;
-
-  constructor() {
-    this.initializeSampleData();
-  }
-
-  private initializeSampleData() {
-    // Sample material prices
-    const materials: MarketData[] = [
-      {
-        materialCode: 'AC-001',
-        name: 'Acero constructivo',
-        currentPrice: 285000,
-        previousPrice: 275000,
-        unit: 'tonelada',
-        currency: 'ARS',
-        lastUpdated: new Date().toISOString(),
-        trend: 'up',
-        source: 'construya.com'
-      },
-      {
-        materialCode: 'CE-001',
-        name: 'Cemento Portland',
-        currentPrice: 12500,
-        previousPrice: 12000,
-        unit: 'tonelada',
-        currency: 'ARS',
-        lastUpdated: new Date().toISOString(),
-        trend: 'up',
-        source: 'construya.com'
-      },
-      {
-        materialCode: 'HI-001',
-        name: 'Hierro redondo 12mm',
-        currentPrice: 9500,
-        previousPrice: 9200,
-        unit: 'barra 12m',
-        currency: 'ARS',
-        lastUpdated: new Date().toISOString(),
-        trend: 'up',
-        source: 'construya.com'
-      },
-      {
-        materialCode: 'LO-001',
-        name: 'Ladrillo hueco 18x18x33',
-        currentPrice: 1800,
-        previousPrice: 1750,
-        unit: 'unidad',
-        currency: 'ARS',
-        lastUpdated: new Date().toISOString(),
-        trend: 'stable',
-        source: 'construya.com'
-      },
-      {
-        materialCode: 'PE-001',
-        name: 'Pintura látex interior',
-        currentPrice: 5800,
-        previousPrice: 5500,
-        unit: 'balde 20L',
-        currency: 'ARS',
-        lastUpdated: new Date().toISOString(),
-        trend: 'up',
-        source: 'construya.com'
-      },
-      {
-        materialCode: 'PL-001',
-        name: 'Placa de yeso 1.20x2.40',
-        currentPrice: 4200,
-        previousPrice: 4300,
-        unit: 'unidad',
-        currency: 'ARS',
-        lastUpdated: new Date().toISOString(),
-        trend: 'down',
-        source: 'construya.com'
-      },
-      {
-        materialCode: 'CA-001',
-        name: 'Cable unipolar 2.5mm',
-        currentPrice: 850,
-        previousPrice: 800,
-        unit: 'metro',
-        currency: 'ARS',
-        lastUpdated: new Date().toISOString(),
-        trend: 'up',
-        source: 'construya.com'
-      },
-      {
-        materialCode: 'TU-001',
-        name: 'Tubo PVC 110mm',
-        currentPrice: 2100,
-        previousPrice: 2000,
-        unit: 'metro',
-        currency: 'ARS',
-        lastUpdated: new Date().toISOString(),
-        trend: 'up',
-        source: 'construya.com'
-      }
-    ];
-
-    materials.forEach(m => this.materialPrices.set(m.materialCode, m));
-
-    // Sample currency data
-    this.currencies.set('USD/ARS', {
-      pair: 'USD/ARS',
-      buy: 1045,
-      sell: 1070,
-      lastUpdated: new Date().toISOString()
-    });
-
-    this.currencies.set('EUR/ARS', {
-      pair: 'EUR/ARS',
-      buy: 1130,
-      sell: 1165,
-      lastUpdated: new Date().toISOString()
-    });
-
-    // Sample inflation data
-    this.inflation = {
-      period: 'Enero 2024',
-      monthly: 15.8,
-      annual: 254.2,
-      source: 'INDEC',
-      lastUpdated: new Date().toISOString()
-    };
-
-    this.lastUpdate = new Date().toISOString();
-  }
-
   async getMaterialPrices(category?: string): Promise<MarketData[]> {
+    const db = getDb();
+    let rows: any[];
     if (category) {
-      return Array.from(this.materialPrices.values()).filter(
-        m => m.name.toLowerCase().includes(category.toLowerCase())
-      );
+      rows = db.prepare('SELECT * FROM market_materials WHERE name LIKE ? COLLATE NOCASE').all(`%${category}%`);
+    } else {
+      rows = db.prepare('SELECT * FROM market_materials').all();
     }
-    return Array.from(this.materialPrices.values());
+    return rows.map((r: any) => ({
+      materialCode: r.material_code,
+      name: r.name,
+      currentPrice: r.current_price,
+      previousPrice: r.previous_price,
+      unit: r.unit,
+      currency: r.currency,
+      lastUpdated: r.last_updated,
+      trend: r.trend,
+      source: r.source,
+    }));
   }
 
   async getMaterialByCode(code: string): Promise<MarketData | null> {
-    return this.materialPrices.get(code) || null;
+    const db = getDb();
+    const r = db.prepare('SELECT * FROM market_materials WHERE material_code = ?').get(code) as any;
+    if (!r) return null;
+    return {
+      materialCode: r.material_code,
+      name: r.name,
+      currentPrice: r.current_price,
+      previousPrice: r.previous_price,
+      unit: r.unit,
+      currency: r.currency,
+      lastUpdated: r.last_updated,
+      trend: r.trend,
+      source: r.source,
+    };
   }
 
   async getCurrencies(): Promise<CurrencyData[]> {
-    return Array.from(this.currencies.values());
+    const db = getDb();
+    const rows = db.prepare('SELECT * FROM market_currencies').all() as any[];
+    return rows.map(r => ({
+      pair: r.pair,
+      buy: r.buy,
+      sell: r.sell,
+      lastUpdated: r.last_updated,
+    }));
   }
 
   async getInflation(): Promise<InflationData | null> {
-    return this.inflation;
+    const db = getDb();
+    const r = db.prepare('SELECT * FROM market_inflation ORDER BY id DESC LIMIT 1').get() as any;
+    if (!r) return null;
+    return {
+      period: r.period,
+      monthly: r.monthly,
+      annual: r.annual,
+      source: r.source,
+      lastUpdated: r.last_updated,
+    };
   }
 
   async updateMarketData(): Promise<{ success: boolean; message: string }> {
-    // In a real implementation, this would fetch from external APIs
-    // For now, we just return success
-    this.lastUpdate = new Date().toISOString();
-    return {
-      success: true,
-      message: 'Market data updated successfully'
-    };
+    const updates: string[] = [];
+    const errors: string[] = [];
+
+    // 1. Fetch real currency rates
+    try {
+      const rates = await dolarService.fetchRates();
+      if (rates.length > 0) {
+        updates.push(`${rates.length} cotizaciones actualizadas`);
+      }
+    } catch (err) {
+      logger.error('Error fetching currency rates:', { error: (err as Error).message });
+      errors.push(`Cotizaciones: ${(err as Error).message}`);
+    }
+
+    // 2. Fetch real inflation data
+    try {
+      const inflation = await dolarService.fetchInflation();
+      if (inflation) {
+        updates.push(`Inflación ${inflation.period}: ${inflation.monthly}% mensual`);
+
+        // 3. Adjust material prices by monthly inflation
+        const db = getDb();
+        const monthlyFactor = inflation.monthly / 100;
+        if (monthlyFactor > 0) {
+          db.prepare(`
+            UPDATE market_materials
+            SET previous_price = current_price,
+                current_price = ROUND(current_price * (1 + ?), 0),
+                trend = CASE
+                  WHEN ? > 0.01 THEN 'up'
+                  WHEN ? < -0.01 THEN 'down'
+                  ELSE 'stable'
+                END,
+                last_updated = datetime('now')
+            WHERE last_updated < datetime('now', '-1 day') OR last_updated IS NULL
+          `).run(monthlyFactor, monthlyFactor, monthlyFactor);
+          updates.push('Precios de materiales ajustados por inflación');
+        }
+      }
+    } catch (err) {
+      logger.error('Error fetching inflation data:', { error: (err as Error).message });
+      errors.push(`Inflación: ${(err as Error).message}`);
+    }
+
+    const success = errors.length === 0;
+    const message = success
+      ? `Datos de mercado actualizados: ${updates.join(', ')}`
+      : `Actualización parcial: ${updates.join(', ')}. Errores: ${errors.join(', ')}`;
+
+    return { success, message };
   }
 
   async getEconomicContext(): Promise<{
@@ -168,15 +124,19 @@ export class MarketService {
     currencies: CurrencyData[];
     summary: string;
   }> {
+    const inflation = await this.getInflation();
+    const currencies = await this.getCurrencies();
+    const usdArs = currencies.find(c => c.pair === 'USD/ARS');
+
     return {
-      inflation: this.inflation,
-      currencies: Array.from(this.currencies.values()),
+      inflation,
+      currencies,
       summary: `
 Contexto Económico Actual:
-- Inflación mensual: ${this.inflation?.monthly || 'N/A'}%
-- Inflación anual: ${this.inflation?.annual || 'N/A'}%
-- Dólar Oficial: $${this.currencies.get('USD/ARS')?.buy || 'N/A'}
-- Dólar Blue: $${this.currencies.get('USD/ARS')?.sell || 'N/A'}
+- Inflación mensual: ${inflation?.monthly || 'N/A'}%
+- Inflación anual: ${inflation?.annual || 'N/A'}%
+- Dólar Oficial: $${usdArs?.buy || 'N/A'}
+- Dólar Blue: $${usdArs?.sell || 'N/A'}
 
 Recomendaciones:
 - Considerar ajuste de precios por inflación esperada
@@ -195,7 +155,8 @@ Recomendaciones:
     inflationRate: number;
     months: number;
   }> {
-    const monthlyRate = inflationRate || (this.inflation?.monthly || 15) / 100;
+    const inflation = await this.getInflation();
+    const monthlyRate = inflationRate || (inflation?.monthly || 15) / 100;
     const adjustedAmount = baseAmount * Math.pow(1 + monthlyRate, months);
 
     return {
@@ -206,7 +167,16 @@ Recomendaciones:
   }
 
   getLastUpdate(): string | null {
-    return this.lastUpdate;
+    const db = getDb();
+    // Get the max last_updated from any market table
+    const matRow = db.prepare('SELECT MAX(last_updated) as lu FROM market_materials').get() as any;
+    const curRow = db.prepare('SELECT MAX(last_updated) as lu FROM market_currencies').get() as any;
+    const infRow = db.prepare('SELECT MAX(last_updated) as lu FROM market_inflation').get() as any;
+
+    const dates = [matRow?.lu, curRow?.lu, infRow?.lu].filter(Boolean);
+    if (dates.length === 0) return null;
+
+    return dates.sort().reverse()[0];
   }
 }
 

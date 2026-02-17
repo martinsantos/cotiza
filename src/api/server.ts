@@ -10,7 +10,9 @@ import { legalService } from '../services/legal.service.js';
 import { trackingService } from '../services/tracking.service.js';
 import { competitiveService } from '../services/competitive.service.js';
 import { licitometroService } from '../services/licitometro.service.js';
+import { schedulerService } from '../services/scheduler.service.js';
 import { getConfig } from '../config/index.js';
+import { existsSync } from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -27,7 +29,16 @@ const publicPath = path.join(process.cwd(), 'public');
 
 // Health check at root (for Docker/load balancer)
 app.get('/health', (_req: Request, res: Response) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString(), basePath: BASE_PATH });
+  const lastUpdate = marketService.getLastUpdate();
+  const lmStatus = licitometroService.getStatus();
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    basePath: BASE_PATH,
+    db: 'sqlite',
+    lastMarketUpdate: lastUpdate,
+    lastTenderSync: lmStatus.lastSync,
+  });
 });
 
 // Create router for all app routes under BASE_PATH
@@ -171,6 +182,23 @@ router.post('/api/bids/:id/documents', async (req: Request, res: Response) => {
     res.json(doc);
   } catch (error) {
     res.status(500).json({ error: 'Failed to generate document' });
+  }
+});
+
+// Download generated document
+router.get('/api/bids/:bidId/documents/:docId/download', async (req: Request, res: Response) => {
+  try {
+    const bid = await bidService.getById(req.params.bidId);
+    if (!bid) {
+      return res.status(404).json({ error: 'Bid not found' });
+    }
+    const doc = bid.documentsGenerated.find(d => d.id === req.params.docId);
+    if (!doc?.path || !existsSync(doc.path)) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+    res.download(doc.path, `${doc.name}.pdf`);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to download document' });
   }
 });
 
@@ -457,6 +485,9 @@ export function startServer(port: number = 3000): void {
     console.log(`cotizAR API server running on http://${config.api.host}:${actualPort}`);
     console.log(`Web UI available at http://localhost:${actualPort}${BASE_PATH}`);
     console.log(`Base path: ${BASE_PATH}`);
+
+    // Start background scheduler for market data and tender sync
+    schedulerService.start();
   });
 }
 

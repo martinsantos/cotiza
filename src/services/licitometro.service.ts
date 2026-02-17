@@ -1,6 +1,8 @@
 import axios, { AxiosInstance } from 'axios';
 import { Tender } from '../types/index.js';
 import { tenderService } from './tender.service.js';
+import { logger } from '../utils/logger.js';
+import { withRetry } from '../utils/retry.js';
 
 interface LicitometroTender {
   id: string;
@@ -144,36 +146,46 @@ export class LicitometroService {
 
   async search(params: LicitometroSearchParams): Promise<{ tenders: Tender[]; total: number }> {
     try {
-      const response = await this.client.get<LicitometroResponse>('/licitaciones', {
-        params: {
-          q: params.q,
-          estado: params.estado,
-          jurisdiccion: params.jurisdiccion,
-          rubro: params.rubro,
-          organismo: params.organismo,
-          fecha_desde: params.fecha_desde,
-          fecha_hasta: params.fecha_hasta,
-          monto_min: params.monto_min,
-          monto_max: params.monto_max,
-          page: params.page || 1,
-          limit: params.limit || 20
-        }
-      });
+      const response = await withRetry(
+        () => this.client.get<LicitometroResponse>('/licitaciones', {
+          params: {
+            q: params.q,
+            estado: params.estado,
+            jurisdiccion: params.jurisdiccion,
+            rubro: params.rubro,
+            organismo: params.organismo,
+            fecha_desde: params.fecha_desde,
+            fecha_hasta: params.fecha_hasta,
+            monto_min: params.monto_min,
+            monto_max: params.monto_max,
+            page: params.page || 1,
+            limit: params.limit || 20
+          }
+        }),
+        3,
+        1000,
+        'Licitometro search'
+      );
 
       const tenders = response.data.data.map(lt => this.mapTenderFromLicitometro(lt));
       return { tenders, total: response.data.total };
     } catch (error) {
-      console.error('Error buscando en LICITOMETRO:', error);
+      logger.error('Error buscando en LICITOMETRO:', { error: error instanceof Error ? error.message : String(error) });
       return { tenders: [], total: 0 };
     }
   }
 
   async getById(id: string): Promise<Tender | null> {
     try {
-      const response = await this.client.get<LicitometroTender>(`/licitaciones/${id}`);
+      const response = await withRetry(
+        () => this.client.get<LicitometroTender>(`/licitaciones/${id}`),
+        3,
+        1000,
+        `Licitometro getById(${id})`
+      );
       return this.mapTenderFromLicitometro(response.data);
     } catch (error) {
-      console.error(`Error obteniendo licitacion ${id} de LICITOMETRO:`, error);
+      logger.error(`Error obteniendo licitacion ${id} de LICITOMETRO:`, { error: error instanceof Error ? error.message : String(error) });
       return null;
     }
   }

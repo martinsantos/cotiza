@@ -1,53 +1,11 @@
 import { Tender, LegalFramework, LegalClause, PaymentTerms, Guarantees } from '../types/index.js';
+import { getDb } from '../db/index.js';
 
 interface LegalClauseTemplate {
   type: string;
   description: string;
   template: string;
 }
-
-const clauseTemplates: Record<string, LegalClauseTemplate> = {
-  confidentiality: {
-    type: 'confidentiality',
-    description: 'Confidentiality Clause',
-    template: 'El contratante se compromete a mantener estricta confidencialidad sobre toda la información proporcionada por el contratista en el marco del presente contrato.'
-  },
-  warranty: {
-    type: 'warranty',
-    description: 'Warranty Clause',
-    template: 'El contratista garantiza que los servicios prestados se ajustan a las especificaciones técnicas y calidad pactadas por un período de {{warranty_months}} meses.'
-  },
-  penalty: {
-    type: 'penalty',
-    description: 'Penalty Clause',
-    template: 'En caso de incumplimiento de los plazos establecidos, se aplicarán penalizaciones equivalentes al {{penalty_rate}}% del valor del contrato por cada día de atraso.'
-  },
-  termination: {
-    type: 'termination',
-    description: 'Termination Clause',
-    template: 'Cualquiera de las partes podrá rescindir el contrato con un preaviso de {{notice_days}} días, sin derecho a indemnización.'
-  },
-  force_majeure: {
-    type: 'force_majeure',
-    description: 'Force Majeure Clause',
-    template: 'Ninguna de las partes será responsable por fuerza mayor conforme al artículo 1730 del Código Civil y Comercial.'
-  },
-  payment: {
-    type: 'payment',
-    description: 'Payment Terms Clause',
-    template: 'Los pagos se realizarán según el cronograma establecido, dentro de los {{payment_days}} días de presentada la factura.'
-  },
-  insurance: {
-    type: 'insurance',
-    description: 'Insurance Clause',
-    template: 'El contratista deberá mantener vigente un seguro de riesgo de trabajo y responsabilidad civil por la totalidad del período contractual.'
-  },
-  subcontracting: {
-    type: 'subcontracting',
-    description: 'Subcontracting Clause',
-    template: 'Queda prohibida la subcontratación total o parcial de los servicios sin autorización previa y escrita del comitente.'
-  }
-};
 
 export class LegalService {
   async analyzeLegalRequirements(tender: Tender): Promise<{
@@ -195,10 +153,11 @@ export class LegalService {
   }
 
   async getClauseTemplate(type: string, variables?: Record<string, string>): Promise<LegalClause | null> {
-    const template = clauseTemplates[type];
-    if (!template) return null;
+    const db = getDb();
+    const row = db.prepare('SELECT * FROM legal_templates WHERE type = ?').get(type) as any;
+    if (!row) return null;
 
-    let content = template.template;
+    let content = row.template;
     if (variables) {
       Object.entries(variables).forEach(([key, value]) => {
         content = content.replace(new RegExp(`{{${key}}}`, 'g'), value);
@@ -206,15 +165,21 @@ export class LegalService {
     }
 
     return {
-      type: template.type,
-      description: template.description,
+      type: row.type,
+      description: row.description,
       content,
       accepted: false
     };
   }
 
   async getAllClauseTemplates(): Promise<LegalClauseTemplate[]> {
-    return Object.values(clauseTemplates);
+    const db = getDb();
+    const rows = db.prepare('SELECT * FROM legal_templates').all() as any[];
+    return rows.map(r => ({
+      type: r.type,
+      description: r.description,
+      template: r.template,
+    }));
   }
 
   async checkCompliance(
@@ -260,7 +225,7 @@ export class LegalService {
 
   async generateComplianceReport(tender: Tender): Promise<string> {
     const analysis = await this.analyzeLegalRequirements(tender);
-    
+
     return `
 INFORME DE CUMPLIMIENTO LEGAL
 ==============================
