@@ -48,16 +48,22 @@ jobs:
 
       - name: Full deploy via SSH
         uses: appleboy/ssh-action@v1
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          envs: DEPLOY_DIR,DEPLOY_PORT
+          envs: DEPLOY_DIR,DEPLOY_PORT,GH_TOKEN,GH_REPO
           command_timeout: 15m
           script: |
             set -euo pipefail
 
             BRANCH="${{ inputs.deploy_branch || github.ref_name }}"
+
+            # Configure git to use token for GitHub access
+            git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
             echo "=========================================="
             echo "  cotizAR CD - branch: $BRANCH"
             echo "=========================================="
