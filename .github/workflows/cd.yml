@@ -252,35 +252,44 @@ jobs:
             fi
 
             # ==========================================================
-            # STEP 7: Nginx reverse proxy (DIRECT inline, self-contained)
+            # STEP 7: Reverse proxy config (auto-detect web server)
             # ==========================================================
             echo ""
-            echo "--- [7/8] Nginx ---"
+            echo "--- [7/8] Reverse proxy ---"
 
-            if ! command -v nginx &>/dev/null; then
-              echo "nginx not installed, skipping proxy config"
-            else
-              # DIAGNOSTIC: full nginx state
-              echo "=== NGINX STATE ==="
-              nginx -v 2>&1 || true
-              echo "Config files:"
-              find /etc/nginx -type f \( -name '*.conf' -o -name 'default' \) 2>/dev/null | grep -v '\.bak' | sort
-              echo "Sites enabled:"
-              ls -la /etc/nginx/sites-enabled/ 2>/dev/null || echo "(none)"
-              echo "Sites available:"
-              ls -la /etc/nginx/sites-available/ 2>/dev/null || echo "(none)"
+            # Detect what web server is running
+            echo "=== WEB SERVER DETECTION ==="
+            echo "Processes on port 80/443:"
+            ss -tlnp 2>/dev/null | grep -E ':80\s|:443\s' || netstat -tlnp 2>/dev/null | grep -E ':80\s|:443\s' || echo "(could not detect)"
+            echo ""
+            echo "Installed web servers:"
+            for cmd in nginx apache2 httpd caddy; do
+              if command -v $cmd &>/dev/null; then
+                echo "  $cmd: $($cmd -v 2>&1 || echo 'found')"
+              fi
+            done
+            echo ""
+            echo "Docker containers:"
+            docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Ports}}' 2>/dev/null || echo "(docker not available or no containers)"
+            echo ""
+            echo "Running services:"
+            systemctl list-units --type=service --state=running 2>/dev/null | grep -iE 'nginx|apache|httpd|caddy|docker|proxy' || echo "(none matching)"
+            echo "=== END DETECTION ==="
+
+            PROXY_CONFIGURED=false
+
+            # ---- NGINX ----
+            if command -v nginx &>/dev/null; then
               echo ""
-              echo "Full config (nginx -T):"
-              nginx -T 2>&1 || echo "nginx -T failed"
-              echo "=== END STATE ==="
+              echo "Configuring NGINX..."
+              nginx -T 2>&1 || true
 
-              # All-in-one Python script - no shell variables needed
               python3 << 'PYEOF'
             import subprocess, re, os, sys, shutil
             from datetime import datetime
 
             COTIZAR_BLOCK = """
-            # BEGIN COTIZAR PROXY (auto-managed by CD - do not edit)
+            # BEGIN COTIZAR PROXY (auto-managed by CD)
             location ^~ /cotizar/api/ {
                 proxy_pass http://127.0.0.1:3001/cotizar/api/;
                 proxy_http_version 1.1;
@@ -311,37 +320,18 @@ jobs:
             }
             # END COTIZAR PROXY
             """
-
-            # Clean up indentation from YAML/heredoc
             lines_raw = COTIZAR_BLOCK.split('\n')
-            # Find minimum indentation (ignoring empty lines)
-            min_indent = 999
-            for l in lines_raw:
-                if l.strip():
-                    min_indent = min(min_indent, len(l) - len(l.lstrip()))
-            if min_indent == 999:
-                min_indent = 0
+            min_indent = min((len(l) - len(l.lstrip()) for l in lines_raw if l.strip()), default=0)
             COTIZAR_BLOCK = '\n'.join(l[min_indent:] for l in lines_raw).strip()
-
-            print(f"Cotizar block ({len(COTIZAR_BLOCK)} chars):")
-            print(COTIZAR_BLOCK[:200])
-            print("...")
 
             def run(cmd):
                 r = subprocess.run(cmd, shell=True, capture_output=True, text=True)
                 return r.stdout + r.stderr
 
-            # Get full merged nginx config
             full = run("nginx -T 2>&1")
-
-            # Parse nginx -T to map server blocks to their source files
-            # nginx -T outputs: # configuration file /path/to/file:
             current_file = None
-            server_blocks = []  # list of (file, has_ssl, has_location, has_content_root)
-            in_server = False
-            has_ssl = False
-            has_location = False
-            has_root = False
+            server_blocks = []
+            in_server = has_ssl = has_location = has_root = False
             brace_depth = 0
 
             for line in full.splitlines():
@@ -349,232 +339,218 @@ jobs:
                 if m:
                     current_file = m.group(1)
                     continue
-
                 stripped = line.strip()
-
                 if re.match(r'server\s*\{', stripped):
-                    in_server = True
-                    has_ssl = False
-                    has_location = False
-                    has_root = False
-                    brace_depth = 0
-
+                    in_server, has_ssl, has_location, has_root, brace_depth = True, False, False, False, 0
                 if in_server:
                     brace_depth += line.count('{') - line.count('}')
-                    if 'ssl' in stripped:
-                        has_ssl = True
-                    if re.match(r'location\s+', stripped):
-                        has_location = True
-                    if re.match(r'root\s+', stripped) or 'try_files' in stripped:
-                        has_root = True
+                    if 'ssl' in stripped: has_ssl = True
+                    if re.match(r'location\s+', stripped): has_location = True
+                    if re.match(r'root\s+', stripped) or 'try_files' in stripped: has_root = True
                     if brace_depth <= 0 and '}' in line:
-                        server_blocks.append({
-                            'file': current_file,
-                            'ssl': has_ssl,
-                            'location': has_location,
-                            'root': has_root,
-                        })
+                        server_blocks.append({'file': current_file, 'ssl': has_ssl, 'location': has_location, 'root': has_root})
                         in_server = False
 
-            print(f"\nFound {len(server_blocks)} server blocks:")
+            print(f"Found {len(server_blocks)} server blocks:")
             for sb in server_blocks:
-                print(f"  {sb['file']} - ssl={sb['ssl']} loc={sb['location']} root={sb['root']}")
+                print(f"  {sb['file']} ssl={sb['ssl']} loc={sb['location']} root={sb['root']}")
 
-            # Choose target files: prefer SSL blocks with locations/root
             target_files = set()
-
-            # Priority 1: SSL server blocks with locations
             for sb in server_blocks:
                 if sb['ssl'] and (sb['location'] or sb['root']) and sb['file']:
                     target_files.add(sb['file'])
-
-            # Priority 2: any server block with locations
             if not target_files:
                 for sb in server_blocks:
-                    if sb['location'] and sb['file']:
+                    if (sb['location'] or sb['root']) and sb['file']:
                         target_files.add(sb['file'])
-
-            # Priority 3: any server block at all
             if not target_files:
                 for sb in server_blocks:
                     if sb['file']:
                         target_files.add(sb['file'])
-
-            # Priority 4: raw file search
             if not target_files:
-                print("No server blocks found in nginx -T, searching files...")
-                for d in ['/etc/nginx/sites-enabled', '/etc/nginx/sites-available', '/etc/nginx/conf.d']:
+                for d in ['/etc/nginx/sites-enabled', '/etc/nginx/conf.d']:
                     if os.path.isdir(d):
                         for f in sorted(os.listdir(d)):
                             fp = os.path.join(d, f)
                             if not f.endswith('.bak') and (os.path.isfile(fp) or os.path.islink(fp)):
-                                real = os.path.realpath(fp)
-                                target_files.add(real)
-                                print(f"  Found: {fp} -> {real}")
-
-            print(f"\nTarget files: {target_files}")
+                                target_files.add(os.path.realpath(fp))
 
             if not target_files:
-                print("ERROR: no nginx config files found!")
+                print("No nginx configs found")
                 sys.exit(1)
 
             modified = 0
             for conf_path in sorted(target_files):
-                print(f"\n{'='*60}")
-                print(f"Processing: {conf_path}")
-                print(f"{'='*60}")
-
-                if '.bak' in conf_path:
-                    print("Skipping backup file")
-                    continue
-
-                try:
-                    with open(conf_path, 'r') as f:
-                        original = f.read()
-                except Exception as e:
-                    # If it's a symlink, resolve it
-                    real = os.path.realpath(conf_path)
-                    print(f"Could not read {conf_path}, trying {real}")
-                    with open(real, 'r') as f:
-                        original = f.read()
-                    conf_path = real
-
-                print(f"Size: {len(original)} bytes")
-                print(f"Content:\n{original}\n")
-
-                # Remove any old cotizar entries (includes or inline blocks)
-                cleaned = original
-                cleaned = re.sub(r'\n?\s*include\s+/etc/nginx/snippets/cotizar\.conf;\s*\n?', '\n', cleaned)
+                if '.bak' in conf_path: continue
+                with open(conf_path, 'r') as f:
+                    original = f.read()
+                cleaned = re.sub(r'\n?\s*include\s+/etc/nginx/snippets/cotizar\.conf;\s*\n?', '\n', original)
                 cleaned = re.sub(r'\s*# BEGIN COTIZAR PROXY.*?# END COTIZAR PROXY\s*', '', cleaned, flags=re.DOTALL)
-
-                if cleaned != original:
-                    print("Cleaned old cotizar entries")
-
-                # Parse and inject into server blocks that have locations
                 lines = cleaned.splitlines(True)
-                new_lines = []
-                i = 0
-                inserted_here = False
-
+                new_lines, i, inserted = [], 0, False
                 while i < len(lines):
-                    stripped = lines[i].strip()
-
-                    if re.match(r'server\s*\{', stripped):
-                        # Collect entire server block
-                        depth = 0
-                        block = []
-                        j = i
-                        first_loc = -1
+                    if re.match(r'server\s*\{', lines[i].strip()):
+                        depth, block, j, first_loc = 0, [], i, -1
                         while j < len(lines):
                             block.append(lines[j])
                             depth += lines[j].count('{') - lines[j].count('}')
-                            s = lines[j].strip()
-                            if re.match(r'location\s+', s) and first_loc < 0:
+                            if re.match(r'\s*location\s+', lines[j].strip()) and first_loc < 0:
                                 first_loc = len(block) - 1
-                            if depth <= 0 and j > i:
-                                break
+                            if depth <= 0 and j > i: break
                             j += 1
-
-                        if first_loc >= 0:
-                            # Insert before first location
-                            for k, bl in enumerate(block):
-                                if k == first_loc:
-                                    new_lines.append('\n')
-                                    for cl in COTIZAR_BLOCK.splitlines():
-                                        new_lines.append('    ' + cl + '\n')
-                                    new_lines.append('\n')
-                                    inserted_here = True
-                                    print(f"INSERTED before location at line {i + first_loc + 1}")
-                                new_lines.append(bl)
-                        else:
-                            # No locations - insert before closing brace
-                            for k, bl in enumerate(block):
-                                if k == len(block) - 1:  # last line = closing }
-                                    new_lines.append('\n')
-                                    for cl in COTIZAR_BLOCK.splitlines():
-                                        new_lines.append('    ' + cl + '\n')
-                                    new_lines.append('\n')
-                                    inserted_here = True
-                                    print(f"INSERTED before closing brace at line {i + k + 1}")
-                                new_lines.append(bl)
-
+                        insert_at = first_loc if first_loc >= 0 else len(block) - 1
+                        for k, bl in enumerate(block):
+                            if k == insert_at:
+                                new_lines.append('\n')
+                                for cl in COTIZAR_BLOCK.splitlines():
+                                    new_lines.append('    ' + cl + '\n')
+                                new_lines.append('\n')
+                                inserted = True
+                            new_lines.append(bl)
                         i = j + 1
                         continue
-
                     new_lines.append(lines[i])
                     i += 1
-
-                if inserted_here:
-                    ts = datetime.now().strftime('%Y%m%d%H%M%S')
-                    backup = f"{conf_path}.bak.{ts}"
-                    shutil.copy2(conf_path, backup)
-                    print(f"Backup: {backup}")
-
+                if inserted:
+                    shutil.copy2(conf_path, f"{conf_path}.bak.{datetime.now().strftime('%s')}")
                     with open(conf_path, 'w') as f:
                         f.writelines(new_lines)
                     modified += 1
-
-                    print(f"Written: {len(new_lines)} lines")
-                    # Show cotizar-related lines
-                    for idx, l in enumerate(new_lines):
-                        if 'cotizar' in l.lower():
-                            print(f"  L{idx+1}: {l.rstrip()}")
-                else:
-                    print("WARNING: could not find insertion point in this file")
-
-            print(f"\n{'='*60}")
-            print(f"TOTAL CONFIGS MODIFIED: {modified}")
-            print(f"{'='*60}")
-
-            if modified == 0:
-                print("\nFAILED: Could not modify any config!")
-                print("Manual fix: add these lines inside the HTTPS server block:")
-                print(COTIZAR_BLOCK)
-                sys.exit(1)
+                    print(f"Modified: {conf_path}")
+            print(f"Total modified: {modified}")
+            sys.exit(0 if modified > 0 else 1)
             PYEOF
 
-              PYEXIT=$?
+              if [ $? -eq 0 ] && nginx -t 2>&1; then
+                nginx -s reload
+                sleep 2
+                if curl -sf "http://127.0.0.1/cotizar/health" 2>/dev/null | grep -q "status"; then
+                  echo "NGINX PROXY OK"
+                  PROXY_CONFIGURED=true
+                fi
+              fi
+            fi
+
+            # ---- APACHE ----
+            if ! $PROXY_CONFIGURED && (command -v apache2 &>/dev/null || command -v httpd &>/dev/null); then
               echo ""
-              echo "Python script exit code: $PYEXIT"
+              echo "Configuring APACHE..."
+              APACHE_CMD=$(command -v apache2 || command -v httpd)
 
-              if [ "$PYEXIT" -eq 0 ]; then
-                echo "Validating nginx..."
-                if nginx -t 2>&1; then
-                  nginx -s reload
-                  echo "nginx reloaded"
-                  sleep 2
+              # Enable required modules
+              a2enmod proxy proxy_http 2>/dev/null || true
 
-                  # Verify proxy works
-                  echo ""
-                  echo "--- Proxy verification ---"
-                  echo -n "/cotizar/health via nginx: "
-                  HBODY=$(curl -sf "http://127.0.0.1/cotizar/health" 2>/dev/null || echo "FAIL")
-                  echo "$HBODY"
+              # Write cotizar proxy config
+              cat > /etc/apache2/conf-available/cotizar.conf 2>/dev/null || cat > /etc/httpd/conf.d/cotizar.conf 2>/dev/null << 'APEOF'
+            # cotizAR reverse proxy (auto-managed by CD)
+            ProxyPreserveHost On
 
-                  if echo "$HBODY" | grep -q "status"; then
-                    echo "PROXY IS WORKING"
-                  else
-                    echo "PROXY NOT WORKING - dumping debug info:"
-                    echo -n "  Direct health check: "
-                    curl -sf "http://127.0.0.1:$DEPLOY_PORT/health" 2>/dev/null || echo "FAIL"
-                    echo ""
-                    echo "  Current nginx config:"
-                    nginx -T 2>&1 | grep -A2 "cotizar" || echo "  (no cotizar in config!)"
-                  fi
+            # API routes
+            ProxyPass /cotizar/api/ http://127.0.0.1:3001/cotizar/api/
+            ProxyPassReverse /cotizar/api/ http://127.0.0.1:3001/cotizar/api/
+
+            # Config routes
+            ProxyPass /cotizar/config/ http://127.0.0.1:3001/cotizar/config/
+            ProxyPassReverse /cotizar/config/ http://127.0.0.1:3001/cotizar/config/
+
+            # Health check
+            ProxyPass /cotizar/health http://127.0.0.1:3001/health
+            ProxyPassReverse /cotizar/health http://127.0.0.1:3001/health
+
+            # Main app (must be last)
+            ProxyPass /cotizar http://127.0.0.1:3001/cotizar
+            ProxyPassReverse /cotizar http://127.0.0.1:3001/cotizar
+            APEOF
+              sed -i 's/^            //' /etc/apache2/conf-available/cotizar.conf 2>/dev/null || true
+              sed -i 's/^            //' /etc/httpd/conf.d/cotizar.conf 2>/dev/null || true
+
+              # Enable on Debian/Ubuntu
+              a2enconf cotizar 2>/dev/null || true
+
+              if apache2ctl configtest 2>&1 || httpd -t 2>&1; then
+                systemctl reload apache2 2>/dev/null || systemctl reload httpd 2>/dev/null
+                sleep 2
+                if curl -sf "http://127.0.0.1/cotizar/health" 2>/dev/null | grep -q "status"; then
+                  echo "APACHE PROXY OK"
+                  PROXY_CONFIGURED=true
                 else
-                  echo "nginx -t FAILED! Restoring backups..."
-                  echo "nginx -t output:"
-                  nginx -t 2>&1 || true
-                  # Restore most recent backups
-                  find /etc/nginx -name '*.bak.*' -mmin -5 2>/dev/null | while read bak; do
-                    orig=$(echo "$bak" | sed 's/\.bak\.[0-9]*//')
-                    cp "$bak" "$orig" && echo "Restored: $orig"
-                  done
-                  nginx -t 2>/dev/null && nginx -s reload 2>/dev/null || true
+                  echo "Apache reloaded but proxy test failed"
                 fi
               else
-                echo "Config injection failed. Check logs above."
+                echo "Apache config test failed"
               fi
+            fi
+
+            # ---- CADDY ----
+            if ! $PROXY_CONFIGURED && command -v caddy &>/dev/null; then
+              echo ""
+              echo "Configuring CADDY..."
+              echo "Caddy config location:"
+              find /etc/caddy -type f 2>/dev/null || echo "(no /etc/caddy)"
+              cat /etc/caddy/Caddyfile 2>/dev/null || true
+
+              # Caddy: append reverse proxy to Caddyfile
+              if [ -f /etc/caddy/Caddyfile ]; then
+                if ! grep -q "cotizar" /etc/caddy/Caddyfile; then
+                  # Add handle block for cotizar
+                  python3 -c "
+            import re
+            with open('/etc/caddy/Caddyfile', 'r') as f:
+                content = f.read()
+            # Add cotizar proxy before the last closing brace or at end
+            block = '''
+                # BEGIN COTIZAR PROXY
+                handle_path /cotizar/health {
+                    reverse_proxy 127.0.0.1:3001
+                }
+                handle /cotizar/* {
+                    reverse_proxy 127.0.0.1:3001
+                }
+                handle /cotizar {
+                    reverse_proxy 127.0.0.1:3001
+                }
+                # END COTIZAR PROXY
+            '''
+            import textwrap
+            block = textwrap.dedent(block)
+            # Insert before the last }
+            idx = content.rfind('}')
+            if idx > 0:
+                content = content[:idx] + block + '\n' + content[idx:]
+            else:
+                content += block
+            with open('/etc/caddy/Caddyfile', 'w') as f:
+                f.write(content)
+            print('Caddyfile updated')
+            "
+                fi
+                caddy validate --config /etc/caddy/Caddyfile 2>&1 || true
+                systemctl reload caddy 2>/dev/null || caddy reload 2>/dev/null
+                sleep 2
+                if curl -sf "http://127.0.0.1/cotizar/health" 2>/dev/null | grep -q "status"; then
+                  echo "CADDY PROXY OK"
+                  PROXY_CONFIGURED=true
+                fi
+              fi
+            fi
+
+            # ---- NO WEB SERVER FOUND ----
+            if ! $PROXY_CONFIGURED; then
+              echo ""
+              echo "========================================"
+              echo "WARNING: No reverse proxy configured!"
+              echo "cotizar is running on port $DEPLOY_PORT"
+              echo "but no web server (nginx/apache/caddy)"
+              echo "was found or could be configured."
+              echo ""
+              echo "cotizar direct access works:"
+              echo "  http://<server-ip>:$DEPLOY_PORT/health"
+              echo "  http://<server-ip>:$DEPLOY_PORT/cotizar"
+              echo ""
+              echo "To fix: install nginx and re-run deploy,"
+              echo "or manually configure your web server to"
+              echo "proxy /cotizar/* to 127.0.0.1:$DEPLOY_PORT"
+              echo "========================================"
             fi
 
             # ==========================================================
