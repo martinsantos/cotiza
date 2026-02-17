@@ -290,6 +290,7 @@ export interface CompetitiveAnalysis {
 
 export interface HistoricalBid {
   tenderId: string;
+  category: string;
   amount: number;
   winner: boolean;
   year: number;

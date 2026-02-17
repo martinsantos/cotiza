@@ -64,6 +64,15 @@ export function loadConfig(): Config {
       console.warn('Failed to load config, using defaults');
     }
   }
+
+  // Override with environment variables
+  if (process.env.API_PORT || process.env.PORT) {
+    config.api.port = Number(process.env.API_PORT || process.env.PORT) || config.api.port;
+  }
+  if (process.env.API_HOST) {
+    config.api.host = process.env.API_HOST;
+  }
+
   return config;
 }
 

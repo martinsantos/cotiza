@@ -72,14 +72,22 @@ export class LegalService {
   }
 
   private detectServiceType(tender: Tender): string {
-    const category = tender.category.toLowerCase();
-    if (category.includes('obra') || category.includes('construcción')) {
+    const normalize = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const text = `${normalize(tender.category)} ${normalize(tender.title)}`;
+
+    if (/obra|construccion|refaccion|edilicio|civil|vial|hidraulic/.test(text)) {
       return 'obra_publica';
     }
-    if (category.includes('servicio') || category.includes('limpieza')) {
+    if (/servicio|limpieza|mantenimiento|vigilancia|seguridad|catering|transporte|logistic/.test(text)) {
       return 'servicio';
     }
-    if (category.includes('suministro') || category.includes('compra')) {
+    if (/suministro|compra|adquisicion|provision|insumo|alimento|medicamento|equipamiento|tecnologia|informatica|software|hardware/.test(text)) {
+      return 'suministro';
+    }
+    if (/consultoria|asesoria|estudio|auditoria|relevamiento|capacitacion|educacion/.test(text)) {
+      return 'servicio';
+    }
+    if (/salud|medic|hospital|sanitari|farmac/.test(text)) {
       return 'suministro';
     }
     return 'general';

@@ -3,6 +3,9 @@ primary_region = "scl"
 
 [build]
 
+[env]
+  BASE_PATH = "/cotizar"
+
 [http_service]
   internal_port = 3000
   force_https = true

@@ -10,12 +10,13 @@ RUN npm run build
 FROM node:20-alpine AS production
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci --only=production
+RUN npm ci --omit=dev
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/public ./public
 
 ENV NODE_ENV=production
 ENV PORT=3000
+ENV BASE_PATH=/cotizar
 
 EXPOSE 3000
 
