@@ -106,6 +106,30 @@ export class LicitometroService {
     return 'ARS';
   }
 
+  private normalizeCategory(rubro: string): string {
+    if (!rubro) return 'General';
+    const lower = rubro.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+    const categoryMap: Array<{ keywords: string[]; category: string }> = [
+      { keywords: ['obra', 'construccion', 'refaccion', 'edilicio', 'civil', 'vial', 'hidraulic'], category: 'Obras' },
+      { keywords: ['servicio', 'limpieza', 'mantenimiento', 'vigilancia', 'seguridad', 'catering', 'logistic'], category: 'Servicios' },
+      { keywords: ['suministro', 'compra', 'adquisicion', 'provision', 'insumo', 'alimento', 'medicamento'], category: 'Suministros' },
+      { keywords: ['consultoria', 'asesoria', 'estudio', 'auditoria', 'proyecto', 'relevamiento'], category: 'Consultoria' },
+      { keywords: ['tecnologia', 'informatica', 'software', 'hardware', 'sistema', 'computacion', 'redes', 'telecomunicacion'], category: 'Tecnologia' },
+      { keywords: ['salud', 'medic', 'hospital', 'sanitari', 'farmac'], category: 'Salud' },
+      { keywords: ['educacion', 'capacitacion', 'formacion', 'escuel'], category: 'Educacion' },
+      { keywords: ['transporte', 'vehiculo', 'flota', 'logistic', 'flete'], category: 'Transporte' },
+    ];
+
+    for (const { keywords, category } of categoryMap) {
+      if (keywords.some(kw => lower.includes(kw))) {
+        return category;
+      }
+    }
+
+    return rubro;
+  }
+
   private mapTenderFromLicitometro(lt: LicitometroTender): Tender {
     return {
       id: `lm-${lt.id}`,
@@ -114,7 +138,7 @@ export class LicitometroService {
       description: lt.descripcion || '',
       agency: lt.organismo || '',
       region: lt.jurisdiccion || '',
-      category: lt.rubro || 'General',
+      category: this.normalizeCategory(lt.rubro),
       status: this.mapStatus(lt.estado),
       openingDate: lt.fecha_publicacion || new Date().toISOString(),
       closingDate: lt.fecha_apertura || new Date().toISOString(),

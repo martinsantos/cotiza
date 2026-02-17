@@ -11,16 +11,16 @@ export class CompetitiveService {
   private initializeSampleData() {
     // Sample historical bids
     this.historicalBids = [
-      { tenderId: 'lic-001', amount: 45000000, winner: true, year: 2023 },
-      { tenderId: 'lic-001', amount: 48000000, winner: false, year: 2023 },
-      { tenderId: 'lic-001', amount: 52000000, winner: false, year: 2023 },
-      { tenderId: 'lic-002', amount: 230000000, winner: true, year: 2023 },
-      { tenderId: 'lic-002', amount: 245000000, winner: false, year: 2023 },
-      { tenderId: 'lic-003', amount: 165000000, winner: true, year: 2023 },
-      { tenderId: 'lic-003', amount: 175000000, winner: false, year: 2023 },
-      { tenderId: 'lic-003', amount: 180000000, winner: false, year: 2023 },
-      { tenderId: 'lic-001', amount: 42000000, winner: true, year: 2022 },
-      { tenderId: 'lic-001', amount: 45000000, winner: false, year: 2022 }
+      { tenderId: 'lic-001', category: 'Servicios', amount: 45000000, winner: true, year: 2023 },
+      { tenderId: 'lic-001', category: 'Servicios', amount: 48000000, winner: false, year: 2023 },
+      { tenderId: 'lic-001', category: 'Servicios', amount: 52000000, winner: false, year: 2023 },
+      { tenderId: 'lic-002', category: 'Obras', amount: 230000000, winner: true, year: 2023 },
+      { tenderId: 'lic-002', category: 'Obras', amount: 245000000, winner: false, year: 2023 },
+      { tenderId: 'lic-003', category: 'Suministros', amount: 165000000, winner: true, year: 2023 },
+      { tenderId: 'lic-003', category: 'Suministros', amount: 175000000, winner: false, year: 2023 },
+      { tenderId: 'lic-003', category: 'Suministros', amount: 180000000, winner: false, year: 2023 },
+      { tenderId: 'lic-001', category: 'Servicios', amount: 42000000, winner: true, year: 2022 },
+      { tenderId: 'lic-001', category: 'Servicios', amount: 45000000, winner: false, year: 2022 }
     ];
 
     // Sample competitors
@@ -68,10 +68,15 @@ export class CompetitiveService {
   }
 
   private getHistoricalBids(category: string): HistoricalBid[] {
-    // Filter by similar category
-    return this.historicalBids.filter(bid => 
-      bid.year >= 2022
-    ).slice(0, 10);
+    const lowerCategory = category.toLowerCase();
+    const byCategory = this.historicalBids.filter(bid =>
+      bid.year >= 2022 && bid.category.toLowerCase() === lowerCategory
+    );
+    // Fall back to all recent bids if no category match
+    if (byCategory.length === 0) {
+      return this.historicalBids.filter(bid => bid.year >= 2022).slice(0, 10);
+    }
+    return byCategory.slice(0, 10);
   }
 
   private getCompetitors(region: string): Competitor[] {

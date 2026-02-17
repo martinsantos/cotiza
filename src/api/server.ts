@@ -60,20 +60,7 @@ app.get('/api/tenders/search', async (req: Request, res: Response) => {
   }
 });
 
-// Get tender by ID
-app.get('/api/tenders/:id', async (req: Request, res: Response) => {
-  try {
-    const tender = await tenderService.getById(req.params.id);
-    if (!tender) {
-      return res.status(404).json({ error: 'Tender not found' });
-    }
-    res.json(tender);
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to get tender' });
-  }
-});
-
-// Get tender categories
+// Get tender categories (MUST be before :id route)
 app.get('/api/tenders/meta/categories', async (_req: Request, res: Response) => {
   try {
     const categories = await tenderService.getCategories();
@@ -83,13 +70,26 @@ app.get('/api/tenders/meta/categories', async (_req: Request, res: Response) => 
   }
 });
 
-// Get tender regions
+// Get tender regions (MUST be before :id route)
 app.get('/api/tenders/meta/regions', async (_req: Request, res: Response) => {
   try {
     const regions = await tenderService.getRegions();
     res.json(regions);
   } catch (error) {
     res.status(500).json({ error: 'Failed to get regions' });
+  }
+});
+
+// Get tender by ID (after all specific /api/tenders/* routes)
+app.get('/api/tenders/:id', async (req: Request, res: Response) => {
+  try {
+    const tender = await tenderService.getById(req.params.id);
+    if (!tender) {
+      return res.status(404).json({ error: 'Tender not found' });
+    }
+    res.json(tender);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to get tender' });
   }
 });
 

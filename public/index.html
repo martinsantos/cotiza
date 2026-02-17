@@ -306,6 +306,9 @@
                             <option value="cerrada">Cerradas</option>
                             <option value="adjudicada">Adjudicadas</option>
                         </select>
+                        <select id="tender-filter-category" style="padding: 9px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px;">
+                            <option value="">Todas las categorias</option>
+                        </select>
                         <button class="btn btn-primary" onclick="searchTenders()">Buscar</button>
                     </div>
 
@@ -316,6 +319,7 @@
                                     <th>Numero</th>
                                     <th>Titulo</th>
                                     <th>Organismo</th>
+                                    <th>Categoria</th>
                                     <th>Presupuesto</th>
                                     <th>Cierre</th>
                                     <th>Estado</th>
@@ -323,7 +327,7 @@
                                 </tr>
                             </thead>
                             <tbody id="tenders-table">
-                                <tr><td colspan="7"><div class="loading"><div class="spinner"></div>Cargando...</div></td></tr>
+                                <tr><td colspan="8"><div class="loading"><div class="spinner"></div>Cargando...</div></td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -673,7 +677,7 @@
 
             switch(id) {
                 case 'dashboard': loadDashboard(); break;
-                case 'tenders': loadTenders(); break;
+                case 'tenders': loadCategoryFilter(); loadTenders(); break;
                 case 'bids': loadBids(); break;
                 case 'market': loadMarket(); break;
                 case 'competitive': loadSelectsFor('competitive-tender-select'); break;
@@ -828,17 +832,32 @@
         async function loadTenders(filter) {
             try {
                 const status = filter || document.getElementById('tender-filter-status').value;
-                const url = status ? `/tenders?status=${status}` : '/tenders';
+                const category = document.getElementById('tender-filter-category').value;
+                const params = new URLSearchParams();
+                if (status) params.set('status', status);
+                if (category) params.set('category', category);
+                const url = params.toString() ? `/tenders?${params}` : '/tenders';
                 tendersCache = await apiFetch(url);
                 renderTendersTable(tendersCache);
             } catch (error) {
-                document.getElementById('tenders-table').innerHTML = '<tr><td colspan="7"><div class="alert alert-danger">Error cargando licitaciones</div></td></tr>';
+                document.getElementById('tenders-table').innerHTML = '<tr><td colspan="8"><div class="alert alert-danger">Error cargando licitaciones</div></td></tr>';
+            }
+        }
+
+        async function loadCategoryFilter() {
+            try {
+                const categories = await apiFetch('/tenders/meta/categories');
+                const select = document.getElementById('tender-filter-category');
+                select.innerHTML = '<option value="">Todas las categorias</option>' +
+                    categories.map(c => `<option value="${c}">${c}</option>`).join('');
+            } catch (error) {
+                console.error('Error loading categories:', error);
             }
         }
 
         function renderTendersTable(tenders) {
             if (!tenders.length) {
-                document.getElementById('tenders-table').innerHTML = '<tr><td colspan="7"><div class="empty-state"><p>No se encontraron licitaciones</p></div></td></tr>';
+                document.getElementById('tenders-table').innerHTML = '<tr><td colspan="8"><div class="empty-state"><p>No se encontraron licitaciones</p></div></td></tr>';
                 return;
             }
             document.getElementById('tenders-table').innerHTML = tenders.map(t => `
@@ -846,6 +865,7 @@
                     <td><strong>${t.number}</strong></td>
                     <td>${t.title.substring(0, 45)}${t.title.length > 45 ? '...' : ''}</td>
                     <td style="font-size: 12px;">${t.agency}</td>
+                    <td style="font-size: 12px;">${t.category}</td>
                     <td>$${t.budget.toLocaleString('es-AR')}</td>
                     <td>${new Date(t.closingDate).toLocaleDateString('es-AR')}</td>
                     <td><span class="badge badge-${t.status}">${t.status}</span></td>
@@ -859,12 +879,14 @@
         async function searchTenders() {
             const query = document.getElementById('tender-search').value;
             const status = document.getElementById('tender-filter-status').value;
+            const category = document.getElementById('tender-filter-category').value;
             try {
                 if (query) {
                     tendersCache = await apiFetch(`/tenders/search?q=${encodeURIComponent(query)}`);
                     if (status) tendersCache = tendersCache.filter(t => t.status === status);
+                    if (category) tendersCache = tendersCache.filter(t => t.category === category);
                 } else {
-                    await loadTenders(status);
+                    await loadTenders();
                     return;
                 }
                 renderTendersTable(tendersCache);
