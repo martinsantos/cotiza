@@ -474,9 +474,7 @@ router.get('*', (_req: Request, res: Response) => {
   res.sendFile(path.join(publicPath, 'index.html'));
 });
 
-// Mount router at BASE_PATH when set (handles proxy that preserves the prefix)
-// AND always at root (handles proxy that strips the prefix, e.g. nginx proxy_pass with trailing slash)
-// This way the app works regardless of how the upstream proxy is configured.
+// Mount at BASE_PATH (proxy preserves prefix) AND at root (proxy strips prefix)
 if (BASE_PATH) {
   app.use(BASE_PATH, router);
 }
