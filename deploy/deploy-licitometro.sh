@@ -33,7 +33,7 @@ set -euo pipefail
 # ============================================================
 INSTALL_DIR="/opt/cotizar"
 REPO_URL="https://github.com/martinsantos/cotiza.git"
-BRANCH="claude/improve-cotizar-cli-Jczk1"
+BRANCH="${DEPLOY_BRANCH:-main}"
 COTIZAR_PORT=3001
 BASE_PATH="/cotizar"
 SERVICE_USER="cotizar"
