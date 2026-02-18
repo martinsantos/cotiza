@@ -8,20 +8,20 @@ services:
     container_name: cotizar-api
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "3001:3000"
     environment:
       - NODE_ENV=production
       - PORT=3000
       - API_HOST=0.0.0.0
+      - BASE_PATH=/cotizar
     volumes:
-      - ./cotizar.config.json:/app/cotizar.config.json:ro
-      - ./bids:/app/bids
+      - cotizar-bids:/app/bids
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/cotizar/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 15s
 
   # Optional: Nginx reverse proxy for production
   nginx:
@@ -37,6 +37,9 @@ services:
       - cotizar-api
     profiles:
       - production
+
+volumes:
+  cotizar-bids:
 
 networks:
   default:
