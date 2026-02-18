@@ -9,10 +9,11 @@
   },
   "scripts": {
     "build": "tsc",
+    "typecheck": "tsc --noEmit",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
     "api": "tsx src/api/server.ts",
-    "test": "vitest"
+    "test": "vitest run --passWithNoTests"
   },
   "keywords": [
     "cli",
