@@ -1,0 +1,60 @@
+name: Deploy cotizAR
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:          # allows manual trigger from GitHub UI
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────
+  # OPTION A: Deploy to Fly.io  (región scl – Santiago, cerca de AR)
+  # Requires secret: FLY_API_TOKEN
+  # ─────────────────────────────────────────────────────────────────────
+  deploy-fly:
+    name: Deploy → Fly.io
+    runs-on: ubuntu-latest
+    if: ${{ vars.DEPLOY_TARGET == 'fly' || vars.DEPLOY_TARGET == '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install & Build
+        run: npm ci && npm run build
+
+      - name: Deploy to Fly.io
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - run: flyctl deploy --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+  # ─────────────────────────────────────────────────────────────────────
+  # OPTION B: Deploy to VPS via SSH  (76.13.234.213 port 3001)
+  # Requires secrets: VPS_SSH_KEY, VPS_HOST, VPS_USER, VPS_PATH
+  # Set repo variable DEPLOY_TARGET=vps to use this path
+  # ─────────────────────────────────────────────────────────────────────
+  deploy-vps:
+    name: Deploy → VPS
+    runs-on: ubuntu-latest
+    if: ${{ vars.DEPLOY_TARGET == 'vps' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to VPS via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -e
+            cd ${{ secrets.VPS_PATH || '/opt/cotiza' }}
+            git fetch origin main
+            git reset --hard origin/main
+            docker compose up -d --build cotizar-api
+            echo "Deploy completo → http://$(hostname -I | awk '{print $1}'):3001/cotizar/"
