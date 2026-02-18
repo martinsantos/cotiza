@@ -649,9 +649,11 @@
 
     <script>
         // === CONFIG ===
-        // Detect base path for sub-path deployments (e.g. /cotizar on licitometro.ar)
-        const _basePath = window.location.pathname.replace(/\/$/, '');
-        const API_URL = _basePath + '/api';
+        // API base is injected server-side as window.__API_BASE__ (handles sub-path deployments).
+        // Fall back to pathname-based detection for local/direct access.
+        const API_URL = window.__API_BASE__ || (window.location.pathname.split('/').filter(Boolean).length > 0
+            ? '/' + window.location.pathname.split('/').filter(Boolean)[0] + '/api'
+            : '/api');
         let tendersCache = [];
         let bidsCache = [];
         let currentDetailTenderId = null;

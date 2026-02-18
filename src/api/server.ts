@@ -1,5 +1,6 @@
 import express, { Request, Response, Router } from 'express';
 import cors from 'cors';
+import fs from 'fs';
 import path, { dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { tenderService } from '../services/tender.service.js';
@@ -33,9 +34,22 @@ router.get('/health', (_req: Request, res: Response) => {
 });
 
 // Inject BASE_PATH into index.html so the frontend knows where the API is
-router.get('/', (_req: Request, res: Response) => {
-  res.sendFile(path.join(publicPath, 'index.html'));
-});
+function serveIndexWithInjection(_req: Request, res: Response) {
+  try {
+    const html = fs.readFileSync(path.join(publicPath, 'index.html'), 'utf8');
+    const apiBase = BASE_PATH ? `${BASE_PATH}/api` : '/api';
+    const injected = html.replace(
+      '</head>',
+      `<script>window.__API_BASE__='${apiBase}';</script>\n</head>`
+    );
+    res.setHeader('Content-Type', 'text/html');
+    res.send(injected);
+  } catch {
+    res.sendFile(path.join(publicPath, 'index.html'));
+  }
+}
+
+router.get('/', serveIndexWithInjection);
 
 // Serve static files
 router.use(express.static(publicPath));
@@ -470,9 +484,7 @@ router.get('/api/config', (_req: Request, res: Response) => {
 });
 
 // SPA fallback: serve index.html for unknown routes
-router.get('*', (_req: Request, res: Response) => {
-  res.sendFile(path.join(publicPath, 'index.html'));
-});
+router.get('*', serveIndexWithInjection);
 
 // Mount router at BASE_PATH when set (handles proxy that preserves the prefix)
 // AND always at root (handles proxy that strips the prefix, e.g. nginx proxy_pass with trailing slash)

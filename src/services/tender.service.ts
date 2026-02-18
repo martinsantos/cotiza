@@ -20,8 +20,8 @@ export class TenderService {
         region: 'CABA',
         category: 'Servicios',
         status: 'abierta',
-        openingDate: '2024-01-15T10:00:00Z',
-        closingDate: '2024-02-28T23:59:59Z',
+        openingDate: '2026-01-20T10:00:00Z',
+        closingDate: '2026-03-10T23:59:59Z',
         budget: 50000000,
         currency: 'ARS',
         requirements: [
@@ -110,8 +110,8 @@ export class TenderService {
         region: 'Buenos Aires',
         category: 'Obras',
         status: 'abierta',
-        openingDate: '2024-02-01T10:00:00Z',
-        closingDate: '2024-03-15T23:59:59Z',
+        openingDate: '2026-02-01T10:00:00Z',
+        closingDate: '2026-03-22T23:59:59Z',
         budget: 250000000,
         currency: 'ARS',
         requirements: [
@@ -195,8 +195,8 @@ export class TenderService {
         region: 'CABA',
         category: 'Suministros',
         status: 'abierta',
-        openingDate: '2024-02-10T10:00:00Z',
-        closingDate: '2024-03-10T23:59:59Z',
+        openingDate: '2026-02-10T10:00:00Z',
+        closingDate: '2026-02-25T23:59:59Z',
         budget: 180000000,
         currency: 'ARS',
         requirements: [
