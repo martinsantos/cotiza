@@ -136,18 +136,172 @@ jobs:
 
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             # NGINX PROXY  (non-fatal if fails)
-            # Strategy A: add /etc/nginx/conf.d/cotizar.conf (new file, no edit)
-            # Strategy B: modify HOST bind-mount file directly
-            # Strategy C: modify container config via docker exec + base64
+            # Strategy 0: system nginx (most common on bare-metal VPS)
+            # Strategy A: Docker nginx conf.d file
+            # Strategy B: Docker nginx host bind-mount file
+            # Strategy C: Docker nginx exec + base64 write
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             set +e
             echo ""
             echo "=== Nginx proxy setup ==="
 
+            PROXY_OK=false
+
+            # ── Check if proxy is already working ────────
+            HEALTH=$(curl -sf "http://127.0.0.1/cotizar/health" 2>/dev/null || echo "")
+            if echo "$HEALTH" | grep -q '"status"'; then
+              echo "Proxy already working via port 80!"
+              PROXY_OK=true
+            fi
+
+            if ! $PROXY_OK; then
+              # ── STRATEGY 0: system nginx (non-Docker) ──────────────────────────────
+              echo ""
+              echo "--- Strategy 0: system nginx ---"
+              SYS_NGINX=false
+              if command -v nginx &>/dev/null; then
+                if systemctl is-active --quiet nginx 2>/dev/null || \
+                   service nginx status 2>/dev/null | grep -q "running\|active" || \
+                   pgrep -x nginx &>/dev/null; then
+                  SYS_NGINX=true
+                  echo "System nginx is running"
+                fi
+              fi
+
+              if $SYS_NGINX; then
+                # Write location block to all possible include dirs
+                NGINX_CONF_DIR=""
+                for d in /etc/nginx/conf.d /etc/nginx/sites-enabled /etc/nginx/vhosts.d; do
+                  if [ -d "$d" ]; then
+                    NGINX_CONF_DIR="$d"
+                    break
+                  fi
+                done
+
+                # Compose the proxy snippet
+                cat > /tmp/cotizar-proxy.conf << 'NGINXEOF'
+            # cotizAR managed - DO NOT REMOVE
+            location ^~ /cotizar {
+                proxy_pass http://127.0.0.1:DEPLOY_PORT_PLACEHOLDER/cotizar;
+                proxy_http_version 1.1;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                proxy_read_timeout 30s;
+                proxy_connect_timeout 5s;
+            }
+            NGINXEOF
+                sed -i "s/DEPLOY_PORT_PLACEHOLDER/$DEPLOY_PORT/" /tmp/cotizar-proxy.conf
+
+                if [ -n "$NGINX_CONF_DIR" ]; then
+                  # Check if conf.d-style files have server blocks (they can be bare location blocks
+                  # only when the main nginx.conf wraps them in a server block via include)
+                  MAIN_CONF=$(nginx -T 2>/dev/null | grep "# configuration file" | grep -v "^#$\|\.conf:$" | sed 's/.*file //' | sed 's/:.*//' | head -1)
+                  echo "Main nginx config: ${MAIN_CONF:-unknown}"
+
+                  # Detect if this is a snippet-style include (bare locations allowed)
+                  SNIPPET_INCLUDE=$(nginx -T 2>/dev/null | grep -c "include.*${NGINX_CONF_DIR}" || echo "0")
+                  echo "conf.d snippet includes: $SNIPPET_INCLUDE"
+
+                  if [ "$SNIPPET_INCLUDE" -gt 0 ]; then
+                    echo "Writing $NGINX_CONF_DIR/cotizar.conf (snippet mode)"
+                    cp /tmp/cotizar-proxy.conf "$NGINX_CONF_DIR/cotizar.conf"
+                    sed -i 's/^            //' "$NGINX_CONF_DIR/cotizar.conf"
+                  else
+                    # Need full server block — find and patch the main site config
+                    echo "conf.d uses server blocks — patching main vhost config"
+                    VHOST_CONF=""
+                    for c in \
+                      /etc/nginx/sites-enabled/default \
+                      /etc/nginx/sites-available/default \
+                      /etc/nginx/conf.d/default.conf \
+                      /etc/nginx/conf.d/licitometro.conf \
+                      $(nginx -T 2>/dev/null | grep "# configuration file" | grep -v "nginx.conf:" | sed 's/.*file //' | sed 's/:.*//' | grep -v '^$'); do
+                      [ -z "$c" ] && continue
+                      if [ -f "$c" ] && grep -qE "server_name|listen" "$c" 2>/dev/null; then
+                        VHOST_CONF="$c"
+                        echo "Found vhost config: $VHOST_CONF"
+                        break
+                      fi
+                    done
+
+                    if [ -n "$VHOST_CONF" ]; then
+                      cp "$VHOST_CONF" "${VHOST_CONF}.bak"
+                      python3 - "$VHOST_CONF" "$DEPLOY_PORT" << 'PYEOF0'
+            import sys, re
+            conf_file, port = sys.argv[1], sys.argv[2]
+            block = f"""
+                # cotizAR managed block - DO NOT REMOVE
+                location ^~ /cotizar {{
+                    proxy_pass http://127.0.0.1:{port}/cotizar;
+                    proxy_http_version 1.1;
+                    proxy_set_header Host $host;
+                    proxy_set_header X-Real-IP $remote_addr;
+                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                    proxy_set_header X-Forwarded-Proto $scheme;
+                    proxy_read_timeout 30s;
+                    proxy_connect_timeout 5s;
+                }}"""
+            with open(conf_file, 'r') as f:
+                content = f.read()
+            content = re.sub(r'\s*# cotizAR managed block.*?(?=\n\s*location|\n\s*\}|\Z)', '', content, flags=re.DOTALL)
+            content = re.sub(r'\s*location\s+\^~\s+/cotizar\s*\{[^}]*\}', '', content, flags=re.DOTALL)
+            inserted = False
+            for pat in [r'(\n[ \t]*location\s+/\s*\{)', r'(\n[ \t]*location\s+~)', r'(\n\s*\})']:
+                m = re.search(pat, content)
+                if m:
+                    content = content[:m.start()] + '\n' + block + content[m.start():]
+                    print(f'Inserted before: {m.group().strip()[:40]}')
+                    inserted = True
+                    break
+            if not inserted:
+                content += '\n' + block + '\n'
+                print('Appended')
+            with open(conf_file, 'w') as f:
+                f.write(content)
+            print('Done:', conf_file)
+            PYEOF0
+                    fi
+                  fi
+
+                  # Test and reload
+                  if nginx -t 2>/dev/null; then
+                    nginx -s reload 2>/dev/null || systemctl reload nginx 2>/dev/null || service nginx reload 2>/dev/null
+                    echo "System nginx reloaded"
+                    sleep 2
+                    HEALTH=$(curl -sf "http://127.0.0.1/cotizar/health" 2>/dev/null || echo "")
+                    if echo "$HEALTH" | grep -q '"status"'; then
+                      echo "Strategy 0 SUCCESS"
+                      PROXY_OK=true
+                    else
+                      echo "Strategy 0: nginx reloaded but proxy not reachable yet"
+                      # Restore backup if we have one
+                      [ -n "${VHOST_CONF:-}" ] && [ -f "${VHOST_CONF}.bak" ] && \
+                        cp "${VHOST_CONF}.bak" "$VHOST_CONF" && \
+                        nginx -s reload 2>/dev/null && echo "Backup restored"
+                    fi
+                  else
+                    echo "nginx -t FAILED after system nginx edit"
+                    nginx -T 2>/dev/null | grep -A5 "cotizar" | head -20
+                    [ -n "${VHOST_CONF:-}" ] && [ -f "${VHOST_CONF}.bak" ] && \
+                      cp "${VHOST_CONF}.bak" "$VHOST_CONF"
+                    rm -f "$NGINX_CONF_DIR/cotizar.conf" 2>/dev/null
+                  fi
+                else
+                  echo "No known nginx conf.d/sites-enabled dir found"
+                fi
+              fi
+            fi
+
+            # ── Docker nginx (if system nginx didn't solve it) ──────────────────────
             NGINX_CTR=$(docker ps --format '{{.Names}}' 2>/dev/null | grep -iE "nginx" | head -1)
+            echo ""
             echo "Nginx container: ${NGINX_CTR:-NONE}"
-            if [ -z "$NGINX_CTR" ]; then
-              echo "No nginx container — skipping proxy config"
+            if $PROXY_OK; then
+              echo "Proxy already OK, skipping Docker nginx"
+            elif [ -z "$NGINX_CTR" ]; then
+              echo "No docker nginx container found"
             else
               # ── Find reachable host IP from container ─
               HOST_IP=""
@@ -457,6 +611,18 @@ jobs:
               echo "Nginx full config (locations):"
               docker exec "$NGINX_CTR" nginx -T 2>&1 | grep -E "server_name|listen|location|proxy_pass|try_files|root" | head -40
             fi
+
+            # ── Final diagnostics (always) ─────────────
+            echo ""
+            echo "=== Infrastructure summary ==="
+            echo "Port 80/443/3001 listeners:"
+            ss -tlnp 2>/dev/null | grep -E ':80 |:443 |:3001 ' || true
+            echo "System nginx: $(systemctl is-active nginx 2>/dev/null || echo not-systemd)"
+            echo "Cloudflared: $(pgrep cloudflared 2>/dev/null && echo RUNNING || echo not running)"
+            echo "Caddy: $(pgrep caddy 2>/dev/null && echo RUNNING || echo not running)"
+            echo "Docker containers: $(docker ps --format '{{.Names}}' 2>/dev/null | tr '\n' ' ' || echo none)"
+            echo "Direct health: $(curl -sf http://127.0.0.1:$DEPLOY_PORT/cotizar/health 2>/dev/null || echo FAIL)"
+            echo "Proxy health:  $(curl -sf http://127.0.0.1/cotizar/health 2>/dev/null || echo FAIL)"
 
             set -euo pipefail
 
