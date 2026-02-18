@@ -212,7 +212,8 @@ jobs:
                   python3 - "$VHOST_CONF" "$DEPLOY_PORT" << 'PYEOF0'
             import sys, re
             conf_file, port = sys.argv[1], sys.argv[2]
-            block = """
+
+            proxy_block = """
                 # cotizAR managed block - DO NOT REMOVE
                 location ^~ /cotizar {
                     proxy_pass http://127.0.0.1:PORT/cotizar;
@@ -224,32 +225,76 @@ jobs:
                     proxy_read_timeout 30s;
                     proxy_connect_timeout 5s;
                 }""".replace("PORT", port)
+
             with open(conf_file, 'r') as f:
                 content = f.read()
+
             # Remove any existing cotizAR blocks
-            content = re.sub(
-                r'\s*# cotizAR managed block.*?(?=\n\s*(?:location|#|server|\})|$)',
-                '', content, flags=re.DOTALL)
-            content = re.sub(
-                r'\s*location\s+\^~\s+/cotizar\s*\{[^}]*\}',
-                '', content, flags=re.DOTALL)
-            # Insert before the first catch-all location, or before closing server }
-            inserted = False
-            for pat in [
-                r'(\n[ \t]*location\s+/\s*\{)',    # location / {
-                r'(\n[ \t]*location\s+~)',           # location ~ or ~*
-                r'(\n[ \t]*\}\s*\n?\s*\})',          # closing }}
-                r'(\n[ \t]*\})',                     # closing }
-            ]:
-                m = re.search(pat, content)
-                if m:
-                    content = content[:m.start()] + '\n' + block + content[m.start():]
-                    print(f'Inserted before: {repr(m.group().strip()[:50])}')
-                    inserted = True
-                    break
-            if not inserted:
-                content += '\n' + block + '\n'
-                print('Appended to end')
+            content = re.sub(r'\s*# cotizAR managed block.*?(?=\n\s*(?:location|#|server|\})|$)',
+                             '', content, flags=re.DOTALL)
+            content = re.sub(r'\s*location\s+\^~\s+/cotizar\s*\{[^}]*\}', '', content, flags=re.DOTALL)
+
+            # Find all top-level server blocks and their spans
+            def find_server_blocks(text):
+                blocks = []
+                for m in re.finditer(r'\bserver\s*\{', text):
+                    start = m.start()
+                    depth, pos = 0, m.end() - 1
+                    while pos < len(text):
+                        if text[pos] == '{': depth += 1
+                        elif text[pos] == '}':
+                            depth -= 1
+                            if depth == 0:
+                                blocks.append((start, pos + 1))
+                                break
+                        pos += 1
+                return blocks
+
+            server_blocks = find_server_blocks(content)
+            print(f'Found {len(server_blocks)} server block(s)')
+
+            # Score blocks: higher = more likely to be the content server (not a redirect)
+            def score(bt):
+                s = 0
+                if re.search(r'\broot\b', bt): s += 20
+                if re.search(r'\btry_files\b', bt): s += 15
+                if re.search(r'location\s+/', bt): s += 10
+                if re.search(r'listen\s+443', bt): s += 5
+                if re.search(r'return\s+30\d', bt): s -= 30  # redirect-only block
+                return s
+
+            if not server_blocks:
+                content += '\n' + proxy_block + '\n'
+                print('No server blocks, appended')
+            else:
+                scored = sorted([(score(content[s:e]), s, e) for s, e in server_blocks], reverse=True)
+                for sc, bs, be in scored:
+                    print(f'  Block {bs}-{be} score={sc}: {content[bs:bs+80].strip()[:60]}')
+
+                # Use the highest-scoring block
+                _, best_start, best_end = scored[0]
+                block_text = content[best_start:best_end]
+                print(f'Patching block at {best_start}-{best_end}')
+
+                # Find the insertion point within that block
+                insert_pos = None
+                for pat in [
+                    r'\n[ \t]*location\s+/\s*\{',   # catch-all location / {
+                    r'\n[ \t]*location\s+~',          # regex location
+                    r'\n[ \t]*error_page\b',          # error_page
+                ]:
+                    m = re.search(pat, block_text)
+                    if m:
+                        insert_pos = best_start + m.start()
+                        print(f'Insert before: {repr(block_text[m.start():m.start()+50].strip())}')
+                        break
+
+                if insert_pos is None:
+                    insert_pos = best_end - 1  # before closing }
+                    print('Insert before closing }')
+
+                content = content[:insert_pos] + '\n' + proxy_block + content[insert_pos:]
+
             with open(conf_file, 'w') as f:
                 f.write(content)
             print('Done:', conf_file)
@@ -636,19 +681,34 @@ jobs:
         run: |
           echo "Waiting 10s for nginx to stabilize..."
           sleep 10
-          echo "Testing https://www.licitometro.ar/cotizar/health ..."
-          BODY=$(curl -sf --max-time 10 "https://www.licitometro.ar/cotizar/health" 2>/dev/null || echo "CURL_FAIL")
-          echo "Response: ${BODY:0:200}"
+          # Try non-www first (main domain), then www following redirects (-L)
+          for URL in \
+            "https://licitometro.ar/cotizar/health" \
+            "https://www.licitometro.ar/cotizar/health"; do
+            echo "Testing $URL ..."
+            BODY=$(curl -sfL --max-time 15 "$URL" 2>/dev/null || echo "CURL_FAIL")
+            echo "Response: ${BODY:0:300}"
+            if echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d.get('status')=='ok'" 2>/dev/null; then
+              echo "✅ PUBLIC HEALTH CHECK OK via $URL"
+              exit 0
+            fi
+            echo "Not a valid health response from $URL"
+          done
 
-          if echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d.get('status')=='ok'" 2>/dev/null; then
-            echo "✅ PUBLIC HEALTH CHECK OK"
-          elif echo "$BODY" | grep -qi "licitometro\|<!DOCTYPE\|<html"; then
+          # Both failed - determine why
+          BODY_FINAL=$(curl -sfL --max-time 15 "https://licitometro.ar/cotizar/health" 2>/dev/null || echo "CURL_FAIL")
+          if [ "$BODY_FINAL" = "CURL_FAIL" ]; then
+            echo "⚠️  VPS not reachable from GitHub runners (firewall/network)"
+            echo "   Direct check: http://76.13.234.213:3001/cotizar/health"
+            echo "   NOTE: if the deploy SSH step was green, the service is likely up"
+            exit 0
+          elif echo "$BODY_FINAL" | grep -qi "licitometro\|<!DOCTYPE\|<html"; then
             echo "❌ Getting licitometro HTML instead of cotizAR JSON"
             echo "   The nginx proxy is NOT routing /cotizar → cotizar service"
-            echo "   Check the 'Deploy + proxy via SSH' step logs for nginx diagnostics"
+            echo "   Check the 'Deploy + proxy via SSH' step logs (Strategy 0 section)"
             exit 1
           else
-            echo "⚠️  VPS not reachable from GitHub runners (firewall)"
-            echo "   Check direct access: http://76.13.234.213:3001/cotizar/health"
-            echo "   NOTE: this does NOT mean the deploy failed"
+            echo "❌ Unexpected response (not JSON, not HTML, not timeout)"
+            echo "   Response: ${BODY_FINAL:0:200}"
+            exit 1
           fi
