@@ -1,12 +1,13 @@
-name: Deploy to VPS
+name: Deploy cotizAR → VPS
 
 on:
   push:
-    branches: [master]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
   deploy:
+    name: Deploy → VPS
     runs-on: ubuntu-latest
     steps:
       - name: Deploy via SSH
@@ -16,7 +17,9 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
+            set -e
             cd ${{ secrets.VPS_PATH }}
-            git pull origin master
-            docker compose up --build -d
-            docker image prune -f
+            git fetch origin main
+            git reset --hard origin/main
+            docker compose up -d --build cotizar-api
+            echo "Deploy OK → http://$(hostname -I | awk '{print $1}'):3001/cotizar/"
