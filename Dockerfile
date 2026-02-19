@@ -16,7 +16,6 @@ COPY --from=builder /app/public ./public
 
 ENV NODE_ENV=production
 ENV PORT=3000
-ENV BASE_PATH=/cotizar
 
 EXPOSE 3000
 
