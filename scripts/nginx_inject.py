@@ -58,24 +58,40 @@ blocks = find_blocks(content)
 print(f"Found {len(blocks)} server block(s)")
 if not blocks:
     content += BLOCK + '\n'
-    print("Appended")
+    print("Appended (no server blocks found)")
 else:
     scored = sorted([(score(content[s:e]), s, e) for s, e in blocks], reverse=True)
     for sc, s, e in scored:
         print(f"  score={sc}: {content[s:s+50].strip()!r}")
-    _, bs, be = scored[0]
-    bt = content[bs:be]
-    ins = None
-    for pat in [r'\n[ \t]*location\s+/\s*\{', r'\n[ \t]*location\s+~', r'\n[ \t]*error_page\b']:
-        m = re.search(pat, bt)
-        if m:
-            ins = bs + m.start()
-            print(f"Inserting before: {bt[m.start():m.start()+40].strip()!r}")
-            break
-    if ins is None:
-        ins = be - 1
-        print("Inserting before closing }")
-    content = content[:ins] + BLOCK + content[ins:]
+
+    # Inject into ALL non-redirect server blocks (score > 0) that don't already have the block.
+    # Work from highest offset to lowest so earlier insertions don't shift later positions.
+    targets = [(sc, s, e) for sc, s, e in scored if sc > 0]
+    if not targets:
+        # All blocks are redirects; fall back to top scorer
+        targets = [scored[0]]
+        print("All blocks are redirects — injecting into top scorer anyway")
+
+    injected = 0
+    for sc, bs, be in sorted(targets, key=lambda x: x[1], reverse=True):
+        bt = content[bs:be]
+        if 'cotizAR managed block' in bt:
+            print(f"  skip (already has block): {content[bs:bs+50].strip()!r}")
+            continue
+        ins = None
+        for pat in [r'\n[ \t]*location\s+/\s*\{', r'\n[ \t]*location\s+~', r'\n[ \t]*error_page\b']:
+            m = re.search(pat, bt)
+            if m:
+                ins = bs + m.start()
+                print(f"  inserting before: {bt[m.start():m.start()+40].strip()!r}")
+                break
+        if ins is None:
+            ins = be - 1
+            print(f"  inserting before closing }}")
+        content = content[:ins] + BLOCK + content[ins:]
+        injected += 1
+
+    print(f"Injected into {injected} server block(s)")
 
 with open(conf_file, 'w') as f:
     f.write(content)
