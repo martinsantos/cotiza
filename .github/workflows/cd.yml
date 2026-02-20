@@ -7,54 +7,47 @@ on:
 
 env:
   DEPLOY_DIR: /opt/cotizar
-  DEPLOY_PORT: 3001
+  DEPLOY_PORT: "3001"
   IMAGE: ghcr.io/martinsantos/cotiza:latest
 
 jobs:
-  # ══════════════════════════════════════════════════════════════
-  # JOB 1: Build Docker image on GitHub runner (has network)
-  #         and push to GitHub Container Registry
-  # ══════════════════════════════════════════════════════════════
-  build:
-    name: Build & push image
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Build image
-        run: docker build -t ${{ env.IMAGE }} .
-
-      - name: Push to ghcr.io
-        run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-          docker push ${{ env.IMAGE }}
-          docker logout ghcr.io
-
-  # ══════════════════════════════════════════════════════════════
-  # JOB 2: Pull pre-built image on VPS and restart container
-  #         No Docker build on VPS = no npm network issues
-  # ══════════════════════════════════════════════════════════════
   deploy:
-    name: Deploy to licitometro.ar
-    needs: build
+    name: Build & deploy
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: read
     concurrency:
       group: production-deploy
       cancel-in-progress: true
+    permissions:
+      contents: read
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Deploy via SSH
+      # Build image on GitHub runner (has npm network access)
+      - name: Build Docker image
+        run: docker build -t ${{ env.IMAGE }} .
+
+      # Write SSH key so we can pipe the image directly to VPS
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      # Stream image over SSH - no registry required
+      - name: Ship image to VPS
+        run: |
+          docker save ${{ env.IMAGE }} | gzip | \
+            ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+            'docker load'
+
+      # Git-pull scripts, start container, inject nginx
+      - name: Deploy on VPS
         uses: appleboy/ssh-action@v1.0.3
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_ACTOR: ${{ github.actor }}
           DEPLOY_DIR: ${{ env.DEPLOY_DIR }}
           DEPLOY_PORT: ${{ env.DEPLOY_PORT }}
           IMAGE: ${{ env.IMAGE }}
@@ -62,19 +55,18 @@ jobs:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          envs: GH_TOKEN,GH_ACTOR,DEPLOY_DIR,DEPLOY_PORT,IMAGE
+          envs: GH_TOKEN,DEPLOY_DIR,DEPLOY_PORT,IMAGE
           command_timeout: 10m
           script: |
             set -euo pipefail
             BRANCH="${{ github.ref_name }}"
             echo "========================================"
-            echo "  cotizAR CD → $BRANCH"
+            echo "  cotizAR Deploy → $BRANCH"
             echo "========================================"
 
-            # ── 1. GIT UPDATE ─────────────────────────
+            # ── 1. GIT UPDATE (gets scripts/ dir) ─────
             echo ""
             echo "--- Git update ---"
-            git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
             REPO_URL="https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
             if [ ! -d "$DEPLOY_DIR/.git" ]; then
               mkdir -p "$DEPLOY_DIR"
@@ -87,29 +79,19 @@ jobs:
             git reset --hard "origin/$BRANCH"
             echo "Commit: $(git log --oneline -1)"
 
-            # ── 2. PULL PRE-BUILT IMAGE ───────────────
-            # Image was built on GitHub runner — no npm/network needed here
-            echo ""
-            echo "--- Pull image: $IMAGE ---"
-            echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_ACTOR" --password-stdin
-            docker pull "$IMAGE"
-            docker logout ghcr.io 2>/dev/null || true
-
-            # ── 3. START CONTAINER ────────────────────
+            # ── 2. START CONTAINER ────────────────────
+            # Image was already loaded via docker load — no pull needed
             echo ""
             echo "--- Docker Compose up ---"
             if docker compose version &>/dev/null 2>&1; then
               COMPOSE="docker compose"
-            elif docker-compose --version &>/dev/null 2>&1; then
-              COMPOSE="docker-compose"
             else
-              echo "ERROR: docker compose not found"; exit 1
+              COMPOSE="docker-compose"
             fi
-            echo "Using: $COMPOSE"
             $COMPOSE up -d cotizar-api
             docker image prune -f 2>/dev/null || true
 
-            # ── 4. HEALTH CHECK ───────────────────────
+            # ── 3. HEALTH CHECK ───────────────────────
             echo ""
             echo "--- Health check (port $DEPLOY_PORT) ---"
             for i in $(seq 1 24); do
@@ -121,14 +103,13 @@ jobs:
               fi
               if [ "$i" -eq 24 ]; then
                 echo "ERROR: not healthy after 120s"
-                docker logs cotizar-api --tail 30 2>/dev/null || true
-                ss -tlnp 2>/dev/null | grep -E ":${DEPLOY_PORT}|:3000" || true
+                docker logs cotizar-api --tail 50 2>/dev/null || true
                 exit 1
               fi
               sleep 5
             done
 
-            # ── 5. NGINX INJECTION ────────────────────
+            # ── 4. NGINX INJECTION ────────────────────
             echo ""
             echo "--- Nginx proxy injection ---"
             set +e
@@ -145,39 +126,28 @@ jobs:
             echo "Licitometro before: HTTP $(licit_http)"
 
             if ! command -v nginx &>/dev/null; then
-              echo "nginx not in PATH — skipping"
+              echo "nginx not in PATH — skipping injection"
             else
-              # ── 5a. STRIP previous cotizAR blocks ─────
               echo "Stripping previous cotizAR blocks..."
               ALL_CONFS=$(nginx -T 2>/dev/null | grep "^# configuration file" | sed 's/.*file //' | sed 's/:.*//' | grep -v '^$' | sort -u)
               STRIPPED_ANY=false
               for c in $ALL_CONFS; do
                 [ -f "$c" ] || continue
-                if grep -q "cotizAR managed block" "$c" 2>/dev/null || \
-                   grep -qE "location\s+\^\~\s+/cotizar" "$c" 2>/dev/null; then
+                if grep -q "cotizAR managed block" "$c" 2>/dev/null || grep -qE "location\s+\^\~\s+/cotizar" "$c" 2>/dev/null; then
                   cp "$c" "${c}.bak"
                   python3 "$DEPLOY_DIR/scripts/nginx_strip.py" "$c" && STRIPPED_ANY=true
                 fi
               done
-
-              if $STRIPPED_ANY; then
-                if nginx -t 2>&1; then
-                  nginx_reload; sleep 2
-                  echo "After strip — licitometro: HTTP $(licit_http)"
-                else
-                  echo "nginx -t failed after strip — restoring"
-                  for c in $ALL_CONFS; do [ -f "${c}.bak" ] && cp "${c}.bak" "$c"; done
-                  nginx_reload
-                fi
+              if $STRIPPED_ANY && nginx -t 2>&1; then
+                nginx_reload; sleep 2
+                echo "After strip — licitometro: HTTP $(licit_http)"
               fi
 
-              # ── 5b. CHECK IF PROXY ALREADY WORKS ──────
               PROXY_CHECK=$(curl -sf --max-time 5 "http://127.0.0.1/cotizar/health" 2>/dev/null || echo "")
               if echo "$PROXY_CHECK" | grep -q '"status"'; then
-                echo "Proxy already working: $PROXY_CHECK"
+                echo "Proxy already working"
                 PROXY_OK=true
               else
-                # ── 5c. FIND VHOST CONFIG ──────────────
                 VHOST_CONF=""
                 for c in $ALL_CONFS; do
                   [ -f "$c" ] || continue
@@ -187,12 +157,9 @@ jobs:
                   fi
                 done
                 if [ -z "$VHOST_CONF" ]; then
-                  for c in \
-                    /etc/nginx/sites-enabled/default \
-                    /etc/nginx/sites-available/default \
-                    /etc/nginx/conf.d/default.conf \
-                    /etc/nginx/conf.d/licitometro.conf \
-                    /etc/nginx/conf.d/licitometro.ar.conf; do
+                  for c in /etc/nginx/sites-enabled/default /etc/nginx/sites-available/default \
+                            /etc/nginx/conf.d/default.conf /etc/nginx/conf.d/licitometro.conf \
+                            /etc/nginx/conf.d/licitometro.ar.conf; do
                     if [ -f "$c" ] && grep -qE "server_name|listen" "$c" 2>/dev/null; then
                       VHOST_CONF="$c"; echo "Vhost (fallback): $VHOST_CONF"; break
                     fi
@@ -201,34 +168,22 @@ jobs:
                 echo "VHOST_CONF=${VHOST_CONF:-NONE}"
 
                 if [ -n "$VHOST_CONF" ]; then
-                  # ── 5d. INJECT ────────────────────────
                   cp "$VHOST_CONF" "${VHOST_CONF}.bak"
-                  if python3 "$DEPLOY_DIR/scripts/nginx_inject.py" "$VHOST_CONF" "$DEPLOY_PORT"; then
-                    if nginx -t 2>&1; then
-                      nginx_reload && echo "nginx reloaded"
-                      sleep 3
-                      VERIFY=$(curl -sf --max-time 5 "http://127.0.0.1/cotizar/health" 2>/dev/null || echo "")
-                      echo "cotizAR proxy: ${VERIFY:-EMPTY}"
-                      LICIT_AFTER=$(licit_http)
-                      echo "Licitometro after: HTTP $LICIT_AFTER"
-                      if [ "$LICIT_AFTER" = "000" ]; then
-                        echo "ERROR: licitometro broken — restoring"
-                        cp "${VHOST_CONF}.bak" "$VHOST_CONF"
-                        nginx_reload; sleep 2
-                        echo "Licitometro restored: HTTP $(licit_http)"
-                        echo "=== injected config for debug ==="
-                        cat "${VHOST_CONF}.bak"
-                      else
-                        echo "$VERIFY" | grep -q '"status"' && PROXY_OK=true || PROXY_OK=false
-                      fi
+                  if python3 "$DEPLOY_DIR/scripts/nginx_inject.py" "$VHOST_CONF" "$DEPLOY_PORT" && nginx -t 2>&1; then
+                    nginx_reload && sleep 3
+                    VERIFY=$(curl -sf --max-time 5 "http://127.0.0.1/cotizar/health" 2>/dev/null || echo "")
+                    echo "cotizAR proxy: ${VERIFY:-EMPTY}"
+                    LICIT_AFTER=$(licit_http)
+                    echo "Licitometro after: HTTP $LICIT_AFTER"
+                    if [ "$LICIT_AFTER" = "000" ]; then
+                      echo "ERROR: licitometro broken — restoring"
+                      cp "${VHOST_CONF}.bak" "$VHOST_CONF"; nginx_reload
                     else
-                      echo "nginx -t FAILED — restoring"
-                      cp "${VHOST_CONF}.bak" "$VHOST_CONF"
-                      nginx_reload 2>/dev/null || true
+                      echo "$VERIFY" | grep -q '"status"' && PROXY_OK=true || true
                     fi
                   else
-                    echo "Inject script failed"
-                    cp "${VHOST_CONF}.bak" "$VHOST_CONF"
+                    echo "nginx config invalid — restoring"
+                    cp "${VHOST_CONF}.bak" "$VHOST_CONF"; nginx_reload 2>/dev/null || true
                   fi
                 else
                   echo "VHOST NOT FOUND"
@@ -237,16 +192,14 @@ jobs:
               fi
             fi
 
-            # ── 6. CLEANUP & SUMMARY ──────────────────
-            git config --global --unset-all "url.https://x-access-token:${GH_TOKEN}@github.com/.insteadof" 2>/dev/null || true
+            # ── 5. SUMMARY ────────────────────────────
             set -e
             echo ""
             echo "========================================"
             echo "  SUMMARY"
             echo "========================================"
-            echo "Direct health: $(curl -sf http://127.0.0.1:${DEPLOY_PORT}/cotizar/health 2>/dev/null || echo FAIL)"
-            echo "HTTP proxy:    $(curl -sf http://127.0.0.1/cotizar/health 2>/dev/null || echo FAIL)"
-            echo "HTTPS proxy:   $(curl -sfk https://127.0.0.1/cotizar/health 2>/dev/null || echo FAIL)"
+            echo "Direct: $(curl -sf http://127.0.0.1:${DEPLOY_PORT}/cotizar/health 2>/dev/null || echo FAIL)"
+            echo "HTTP:   $(curl -sf http://127.0.0.1/cotizar/health 2>/dev/null || echo FAIL)"
             echo "Proxy OK: ${PROXY_OK:-false}"
             echo "Commit: $(git log --oneline -1)"
             echo "========================================"
