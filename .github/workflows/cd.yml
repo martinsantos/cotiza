@@ -19,6 +19,7 @@ jobs:
       cancel-in-progress: true
     permissions:
       contents: read
+      packages: write   # needed to push to GHCR
 
     steps:
       - uses: actions/checkout@v4
@@ -27,28 +28,19 @@ jobs:
       - name: Build Docker image
         run: docker build -t ${{ env.IMAGE }} .
 
-      # Load SSH key into agent (handles key format correctly)
-      - name: Setup SSH agent
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+      # Push to GHCR so the VPS can pull directly (no SSH pipe)
+      - name: Login to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      - name: Add VPS to known_hosts
-        run: ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null || true
+      - name: Push image to GHCR
+        run: docker push ${{ env.IMAGE }}
 
-      # Stream image over SSH - no registry required
-      - name: Ship image to VPS
-        run: |
-          docker save ${{ env.IMAGE }} | gzip | \
-            ssh -o StrictHostKeyChecking=no \
-            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
-            'docker load'
-
-      # Git-pull scripts, start container, inject nginx
+      # Deploy: VPS pulls from GHCR, runs docker compose
       - name: Deploy on VPS
         uses: appleboy/ssh-action@v1.0.3
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_ACTOR: ${{ github.actor }}
           DEPLOY_DIR: ${{ env.DEPLOY_DIR }}
           DEPLOY_PORT: ${{ env.DEPLOY_PORT }}
           IMAGE: ${{ env.IMAGE }}
@@ -56,7 +48,7 @@ jobs:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          envs: GH_TOKEN,DEPLOY_DIR,DEPLOY_PORT,IMAGE
+          envs: GH_TOKEN,GITHUB_ACTOR,DEPLOY_DIR,DEPLOY_PORT,IMAGE
           command_timeout: 10m
           script: |
             set -euo pipefail
@@ -80,8 +72,13 @@ jobs:
             git reset --hard "origin/$BRANCH"
             echo "Commit: $(git log --oneline -1)"
 
-            # ── 2. START CONTAINER ────────────────────
-            # Image was already loaded via docker load — no pull needed
+            # ── 2. PULL IMAGE FROM GHCR ───────────────
+            echo ""
+            echo "--- Docker pull from GHCR ---"
+            echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+            docker pull "$IMAGE"
+
+            # ── 3. START CONTAINER ────────────────────
             echo ""
             echo "--- Docker Compose up ---"
             if docker compose version &>/dev/null 2>&1; then
@@ -92,7 +89,7 @@ jobs:
             $COMPOSE up -d cotizar-api
             docker image prune -f 2>/dev/null || true
 
-            # ── 3. HEALTH CHECK ───────────────────────
+            # ── 4. HEALTH CHECK ───────────────────────
             echo ""
             echo "--- Health check (port $DEPLOY_PORT) ---"
             for i in $(seq 1 24); do
@@ -110,7 +107,7 @@ jobs:
               sleep 5
             done
 
-            # ── 4. NGINX INJECTION ────────────────────
+            # ── 5. NGINX INJECTION ────────────────────
             echo ""
             echo "--- Nginx proxy injection ---"
             set +e
@@ -193,7 +190,7 @@ jobs:
               fi
             fi
 
-            # ── 5. SUMMARY ────────────────────────────
+            # ── 6. SUMMARY ────────────────────────────
             set -e
             echo ""
             echo "========================================"
