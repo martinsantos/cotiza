@@ -1,7 +1,6 @@
-version: '3.8'
-
 services:
   cotizar-api:
+    image: ghcr.io/martinsantos/cotiza:latest
     build:
       context: .
       dockerfile: Dockerfile

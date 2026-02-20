@@ -8,10 +8,43 @@ on:
 env:
   DEPLOY_DIR: /opt/cotizar
   DEPLOY_PORT: 3001
+  IMAGE: ghcr.io/martinsantos/cotiza:latest
 
 jobs:
+  # ══════════════════════════════════════════════════════════════
+  # JOB 1: Build Docker image on GitHub runner (has network)
+  #         and push to GitHub Container Registry
+  # ══════════════════════════════════════════════════════════════
+  build:
+    name: Build & push image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ env.IMAGE }}
+
+  # ══════════════════════════════════════════════════════════════
+  # JOB 2: Pull pre-built image on VPS and restart container
+  #         No Docker build on VPS = no npm network issues
+  # ══════════════════════════════════════════════════════════════
   deploy:
     name: Deploy to licitometro.ar
+    needs: build
     runs-on: ubuntu-latest
     concurrency:
       group: production-deploy
@@ -22,15 +55,17 @@ jobs:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_ACTOR: ${{ github.actor }}
           DEPLOY_DIR: ${{ env.DEPLOY_DIR }}
           DEPLOY_PORT: ${{ env.DEPLOY_PORT }}
+          IMAGE: ${{ env.IMAGE }}
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          envs: GH_TOKEN,DEPLOY_DIR,DEPLOY_PORT
-          command_timeout: 20m
+          envs: GH_TOKEN,GH_ACTOR,DEPLOY_DIR,DEPLOY_PORT,IMAGE
+          command_timeout: 10m
           script: |
             set -euo pipefail
             BRANCH="${{ github.ref_name }}"
@@ -38,17 +73,7 @@ jobs:
             echo "  cotizAR CD → $BRANCH"
             echo "========================================"
 
-            # ── 1. ENVIRONMENT ────────────────────────
-            echo ""
-            echo "--- Environment ---"
-            echo "User: $(whoami)"
-            echo "Docker: $(docker --version 2>/dev/null || echo NOT FOUND)"
-            echo "Docker Compose plugin: $(docker compose version 2>/dev/null || echo NOT FOUND)"
-            echo "docker-compose binary: $(docker-compose --version 2>/dev/null || echo NOT FOUND)"
-            echo "Nginx: $(nginx -v 2>&1 || echo NOT FOUND)"
-            echo "Python3: $(python3 --version 2>/dev/null || echo NOT FOUND)"
-
-            # ── 2. GIT UPDATE ─────────────────────────
+            # ── 1. GIT UPDATE ─────────────────────────
             echo ""
             echo "--- Git update ---"
             git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
@@ -64,46 +89,46 @@ jobs:
             git reset --hard "origin/$BRANCH"
             echo "Commit: $(git log --oneline -1)"
 
-            # ── 3. DOCKER COMPOSE UP ──────────────────
+            # ── 2. PULL PRE-BUILT IMAGE ───────────────
+            # Image was built on GitHub runner — no npm/network needed here
+            echo ""
+            echo "--- Pull image: $IMAGE ---"
+            echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_ACTOR" --password-stdin
+            docker pull "$IMAGE"
+            docker logout ghcr.io 2>/dev/null || true
+
+            # ── 3. START CONTAINER ────────────────────
             echo ""
             echo "--- Docker Compose up ---"
-            # Try plugin first, fall back to standalone binary
             if docker compose version &>/dev/null 2>&1; then
               COMPOSE="docker compose"
             elif docker-compose --version &>/dev/null 2>&1; then
               COMPOSE="docker-compose"
             else
-              echo "ERROR: neither 'docker compose' nor 'docker-compose' found"
-              exit 1
+              echo "ERROR: docker compose not found"; exit 1
             fi
             echo "Using: $COMPOSE"
-            echo "=== Dockerfile (confirma versión en VPS) ==="
-            head -20 Dockerfile
-            $COMPOSE up -d --build cotizar-api
+            $COMPOSE up -d cotizar-api
             docker image prune -f 2>/dev/null || true
 
             # ── 4. HEALTH CHECK ───────────────────────
             echo ""
             echo "--- Health check (port $DEPLOY_PORT) ---"
-            HEALTHY=false
             for i in $(seq 1 24); do
               RESP=$(curl -sf "http://localhost:${DEPLOY_PORT}/cotizar/health" 2>/dev/null || echo "")
               echo "  [$i/24] → ${RESP:-EMPTY}"
               if echo "$RESP" | grep -q '"status"'; then
-                HEALTHY=true
                 echo "  HEALTHY!"
                 break
               fi
+              if [ "$i" -eq 24 ]; then
+                echo "ERROR: not healthy after 120s"
+                docker logs cotizar-api --tail 30 2>/dev/null || true
+                ss -tlnp 2>/dev/null | grep -E ":${DEPLOY_PORT}|:3000" || true
+                exit 1
+              fi
               sleep 5
             done
-            if ! $HEALTHY; then
-              echo "ERROR: service not healthy after 120s"
-              echo "Docker logs:"
-              docker logs cotizar-api --tail 30 2>/dev/null || true
-              echo "Port listeners:"
-              ss -tlnp 2>/dev/null | grep -E ":${DEPLOY_PORT}|:3000" || true
-              exit 1
-            fi
 
             # ── 5. NGINX INJECTION ────────────────────
             echo ""
@@ -119,19 +144,13 @@ jobs:
               curl -so /dev/null -w "%{http_code}" --max-time 5 "http://127.0.0.1/" 2>/dev/null || echo "000"
             }
 
-            licit_ok() {
-              CODE=$(licit_http)
-              [ "$CODE" = "200" ] || [ "$CODE" = "301" ] || [ "$CODE" = "302" ]
-            }
-
             echo "Licitometro before: HTTP $(licit_http)"
 
             if ! command -v nginx &>/dev/null; then
               echo "nginx not in PATH — skipping"
             else
-              # ── 5a. STRIP all cotizAR blocks from every nginx config ─────────
-              # This fixes licitometro if previous runs left broken injection
-              echo "Stripping previous cotizAR blocks from all nginx configs..."
+              # ── 5a. STRIP previous cotizAR blocks ─────
+              echo "Stripping previous cotizAR blocks..."
               cat > /tmp/nginx_strip.py << 'STRIPEOF'
 import re, sys
 
@@ -139,11 +158,9 @@ conf_file = sys.argv[1]
 with open(conf_file) as f:
     orig = f.read()
 
-# Strip comment line + location block together (handles nested-safe [^}]* match)
 cleaned = re.sub(
     r'[ \t]*# cotizAR managed block[^\n]*\n[ \t]*location\s+\^~\s+/cotizar\s*\{[^}]*\}\n?',
     '', orig, flags=re.DOTALL)
-# Also catch orphan location block (no comment)
 cleaned = re.sub(
     r'[ \t]*location\s+\^~\s+/cotizar\s*\{[^}]*\}\n?',
     '', cleaned, flags=re.DOTALL)
@@ -153,7 +170,7 @@ if cleaned != orig:
         f.write(cleaned)
     print(f"Stripped: {conf_file}")
 else:
-    print(f"Clean (no block found): {conf_file}")
+    print(f"Clean: {conf_file}")
 STRIPEOF
 
               ALL_CONFS=$(nginx -T 2>/dev/null | grep "^# configuration file" | sed 's/.*file //' | sed 's/:.*//' | grep -v '^$' | sort -u)
@@ -168,16 +185,12 @@ STRIPEOF
               done
 
               if $STRIPPED_ANY; then
-                echo "Testing nginx after strip..."
                 if nginx -t 2>&1; then
-                  nginx_reload
-                  sleep 2
+                  nginx_reload; sleep 2
                   echo "After strip — licitometro: HTTP $(licit_http)"
                 else
-                  echo "nginx -t failed after strip — restoring stripped files"
-                  for c in $ALL_CONFS; do
-                    [ -f "${c}.bak" ] && cp "${c}.bak" "$c"
-                  done
+                  echo "nginx -t failed after strip — restoring"
+                  for c in $ALL_CONFS; do [ -f "${c}.bak" ] && cp "${c}.bak" "$c"; done
                   nginx_reload
                 fi
               fi
@@ -188,7 +201,7 @@ STRIPEOF
                 echo "Proxy already working: $PROXY_CHECK"
                 PROXY_OK=true
               else
-                # ── 5c. FIND VHOST CONFIG ─────────────────────
+                # ── 5c. FIND VHOST CONFIG ──────────────
                 VHOST_CONF=""
                 for c in $ALL_CONFS; do
                   [ -f "$c" ] || continue
@@ -212,7 +225,7 @@ STRIPEOF
                 echo "VHOST_CONF=${VHOST_CONF:-NONE}"
 
                 if [ -n "$VHOST_CONF" ]; then
-                  # ── 5d. INJECT ──────────────────────────────
+                  # ── 5d. INJECT ────────────────────────
                   cat > /tmp/nginx_inject.py << 'INJECTEOF'
 import sys, re
 
@@ -299,7 +312,7 @@ INJECTEOF
                         cp "${VHOST_CONF}.bak" "$VHOST_CONF"
                         nginx_reload; sleep 2
                         echo "Licitometro restored: HTTP $(licit_http)"
-                        echo "=== INJECTED CONFIG (for debug) ==="
+                        echo "=== injected config for debug ==="
                         cat "${VHOST_CONF}.bak"
                       else
                         echo "$VERIFY" | grep -q '"status"' && PROXY_OK=true || PROXY_OK=false
@@ -310,7 +323,7 @@ INJECTEOF
                       nginx_reload 2>/dev/null || true
                     fi
                   else
-                    echo "Inject script failed — no changes"
+                    echo "Inject script failed"
                     cp "${VHOST_CONF}.bak" "$VHOST_CONF"
                   fi
                 else
