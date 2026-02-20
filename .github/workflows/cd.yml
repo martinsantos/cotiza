@@ -113,63 +113,106 @@ jobs:
               nginx -s reload 2>/dev/null || systemctl reload nginx 2>/dev/null || service nginx reload 2>/dev/null
             }
 
-            licitometro_ok() {
-              STATUS=$(curl -so /dev/null -w "%{http_code}" --max-time 5 "http://127.0.0.1/" 2>/dev/null || echo "000")
-              [ "$STATUS" = "200" ] || [ "$STATUS" = "301" ] || [ "$STATUS" = "302" ]
+            licit_http() {
+              curl -so /dev/null -w "%{http_code}" --max-time 5 "http://127.0.0.1/" 2>/dev/null || echo "000"
             }
 
-            # ── 5a. EMERGENCY RESTORE ─────────────────
-            # If licitometro is currently broken and a backup exists, restore it first
-            echo "Licitometro before touch:"
-            if licitometro_ok; then
-              echo "  OK"
-              LICIT_WAS_OK=true
+            licit_ok() {
+              CODE=$(licit_http)
+              [ "$CODE" = "200" ] || [ "$CODE" = "301" ] || [ "$CODE" = "302" ]
+            }
+
+            echo "Licitometro before: HTTP $(licit_http)"
+
+            if ! command -v nginx &>/dev/null; then
+              echo "nginx not in PATH — skipping"
             else
-              echo "  BROKEN (HTTP $(curl -so /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1/ 2>/dev/null || echo 000))"
-              LICIT_WAS_OK=false
-              # Find and restore any backup we may have left
-              for BAK in \
-                /etc/nginx/sites-enabled/default.bak \
-                /etc/nginx/sites-available/default.bak \
-                /etc/nginx/conf.d/default.conf.bak \
-                /etc/nginx/conf.d/licitometro.conf.bak \
-                /etc/nginx/conf.d/licitometro.ar.conf.bak; do
-                if [ -f "$BAK" ]; then
-                  ORIG="${BAK%.bak}"
-                  echo "  Found backup $BAK → restoring to $ORIG"
-                  cp "$BAK" "$ORIG"
-                  if nginx -t 2>&1; then
-                    nginx_reload
-                    sleep 2
-                    if licitometro_ok; then
-                      echo "  Licitometro RESTORED OK"
-                      LICIT_WAS_OK=true
-                    else
-                      echo "  Still broken after restore — may be unrelated"
-                    fi
-                  else
-                    echo "  Backup also invalid — not restoring"
-                    cp "$ORIG" "$BAK"  # revert
-                  fi
-                  break
+              # ── 5a. STRIP all cotizAR blocks from every nginx config ─────────
+              # This fixes licitometro if previous runs left broken injection
+              echo "Stripping previous cotizAR blocks from all nginx configs..."
+              cat > /tmp/nginx_strip.py << 'STRIPEOF'
+import re, sys
+
+conf_file = sys.argv[1]
+with open(conf_file) as f:
+    orig = f.read()
+
+# Strip comment line + location block together (handles nested-safe [^}]* match)
+cleaned = re.sub(
+    r'[ \t]*# cotizAR managed block[^\n]*\n[ \t]*location\s+\^~\s+/cotizar\s*\{[^}]*\}\n?',
+    '', orig, flags=re.DOTALL)
+# Also catch orphan location block (no comment)
+cleaned = re.sub(
+    r'[ \t]*location\s+\^~\s+/cotizar\s*\{[^}]*\}\n?',
+    '', cleaned, flags=re.DOTALL)
+
+if cleaned != orig:
+    with open(conf_file, 'w') as f:
+        f.write(cleaned)
+    print(f"Stripped: {conf_file}")
+else:
+    print(f"Clean (no block found): {conf_file}")
+STRIPEOF
+
+              ALL_CONFS=$(nginx -T 2>/dev/null | grep "^# configuration file" | sed 's/.*file //' | sed 's/:.*//' | grep -v '^$' | sort -u)
+              STRIPPED_ANY=false
+              for c in $ALL_CONFS; do
+                [ -f "$c" ] || continue
+                if grep -q "cotizAR managed block" "$c" 2>/dev/null || \
+                   grep -qE "location\s+\^\~\s+/cotizar" "$c" 2>/dev/null; then
+                  cp "$c" "${c}.bak"
+                  python3 /tmp/nginx_strip.py "$c" && STRIPPED_ANY=true
                 fi
               done
-            fi
 
-            # ── 5b. CHECK IF PROXY ALREADY WORKS ──────
-            PROXY_CHECK=$(curl -sf --max-time 5 "http://127.0.0.1/cotizar/health" 2>/dev/null || echo "")
-            if echo "$PROXY_CHECK" | grep -q '"status"'; then
-              echo "Proxy already working: $PROXY_CHECK"
-              PROXY_OK=true
-            else
-              if ! command -v nginx &>/dev/null; then
-                echo "nginx command not found in PATH — skipping injection"
+              if $STRIPPED_ANY; then
+                echo "Testing nginx after strip..."
+                if nginx -t 2>&1; then
+                  nginx_reload
+                  sleep 2
+                  echo "After strip — licitometro: HTTP $(licit_http)"
+                else
+                  echo "nginx -t failed after strip — restoring stripped files"
+                  for c in $ALL_CONFS; do
+                    [ -f "${c}.bak" ] && cp "${c}.bak" "$c"
+                  done
+                  nginx_reload
+                fi
+              fi
+
+              # ── 5b. CHECK IF PROXY ALREADY WORKS ──────
+              PROXY_CHECK=$(curl -sf --max-time 5 "http://127.0.0.1/cotizar/health" 2>/dev/null || echo "")
+              if echo "$PROXY_CHECK" | grep -q '"status"'; then
+                echo "Proxy already working: $PROXY_CHECK"
+                PROXY_OK=true
               else
-                echo "nginx is at: $(which nginx)"
+                # ── 5c. FIND VHOST CONFIG ─────────────────────
+                VHOST_CONF=""
+                for c in $ALL_CONFS; do
+                  [ -f "$c" ] || continue
+                  echo "$c" | grep -q "nginx.conf$" && continue
+                  if grep -qE "listen[[:space:]]+80|server_name" "$c" 2>/dev/null; then
+                    VHOST_CONF="$c"; echo "Vhost: $VHOST_CONF"; break
+                  fi
+                done
+                if [ -z "$VHOST_CONF" ]; then
+                  for c in \
+                    /etc/nginx/sites-enabled/default \
+                    /etc/nginx/sites-available/default \
+                    /etc/nginx/conf.d/default.conf \
+                    /etc/nginx/conf.d/licitometro.conf \
+                    /etc/nginx/conf.d/licitometro.ar.conf; do
+                    if [ -f "$c" ] && grep -qE "server_name|listen" "$c" 2>/dev/null; then
+                      VHOST_CONF="$c"; echo "Vhost (fallback): $VHOST_CONF"; break
+                    fi
+                  done
+                fi
+                echo "VHOST_CONF=${VHOST_CONF:-NONE}"
 
-                # Write python3 inject script
-                cat > /tmp/nginx_inject.py << 'ENDPY'
-import sys, re, shutil
+                if [ -n "$VHOST_CONF" ]; then
+                  # ── 5d. INJECT ──────────────────────────────
+                  cat > /tmp/nginx_inject.py << 'INJECTEOF'
+import sys, re
 
 conf_file = sys.argv[1]
 port = sys.argv[2]
@@ -188,19 +231,9 @@ BLOCK = (
     "\n    }"
 )
 
-with open(conf_file, 'r') as f:
+with open(conf_file) as f:
     content = f.read()
 
-# Remove any previously injected block (comment + location together)
-content = re.sub(
-    r'\n[ \t]*# cotizAR managed block[^\n]*\n[ \t]*location\s+\^~\s+/cotizar\s*\{[^}]*\}',
-    '', content, flags=re.DOTALL)
-# Also catch leftover location block without comment
-content = re.sub(
-    r'\n[ \t]*location\s+\^~\s+/cotizar\s*\{[^}]*\}',
-    '', content, flags=re.DOTALL)
-
-# Find best server block
 def find_blocks(text):
     blocks = []
     for m in re.finditer(r'\bserver\s*\{', text):
@@ -215,8 +248,8 @@ def find_blocks(text):
 
 def score(bt):
     s = 0
-    if re.search(r'\broot\b', bt): s += 20
-    if re.search(r'\btry_files\b', bt): s += 15
+    if 'root ' in bt or 'root\t' in bt: s += 20
+    if 'try_files' in bt: s += 15
     if re.search(r'location\s+/', bt): s += 10
     if re.search(r'listen\s+443', bt): s += 5
     if re.search(r'return\s+30\d', bt): s -= 30
@@ -225,8 +258,8 @@ def score(bt):
 blocks = find_blocks(content)
 print(f"Found {len(blocks)} server block(s)")
 if not blocks:
-    content += '\n' + BLOCK + '\n'
-    print("Appended (no server blocks found)")
+    content += BLOCK + '\n'
+    print("Appended")
 else:
     scored = sorted([(score(content[s:e]), s, e) for s, e in blocks], reverse=True)
     for sc, s, e in scored:
@@ -247,76 +280,40 @@ else:
 
 with open(conf_file, 'w') as f:
     f.write(content)
-print(f"Patched: {conf_file}")
-ENDPY
+print(f"Done: {conf_file}")
+INJECTEOF
 
-                # Find vhost config
-                VHOST_CONF=""
-                ALL_CONFS=$(nginx -T 2>/dev/null | grep "^# configuration file" | sed 's/.*file //' | sed 's/:.*//' | grep -v '^$' | sort -u)
-                for c in $ALL_CONFS; do
-                  [ -f "$c" ] || continue
-                  echo "$c" | grep -q "nginx.conf$" && continue
-                  if grep -qE "listen[[:space:]]+80|server_name" "$c" 2>/dev/null; then
-                    VHOST_CONF="$c"; echo "Vhost found: $VHOST_CONF"; break
-                  fi
-                done
-                if [ -z "$VHOST_CONF" ]; then
-                  for c in \
-                    /etc/nginx/sites-enabled/default \
-                    /etc/nginx/sites-available/default \
-                    /etc/nginx/conf.d/default.conf \
-                    /etc/nginx/conf.d/licitometro.conf \
-                    /etc/nginx/conf.d/licitometro.ar.conf; do
-                    if [ -f "$c" ] && grep -qE "server_name|listen" "$c" 2>/dev/null; then
-                      VHOST_CONF="$c"; echo "Vhost (fallback): $VHOST_CONF"; break
-                    fi
-                  done
-                fi
-                echo "VHOST_CONF=${VHOST_CONF:-NONE}"
-
-                if [ -n "$VHOST_CONF" ]; then
                   cp "$VHOST_CONF" "${VHOST_CONF}.bak"
-                  echo "Backup saved: ${VHOST_CONF}.bak"
-
                   if python3 /tmp/nginx_inject.py "$VHOST_CONF" "$DEPLOY_PORT"; then
-                    echo "nginx -t result:"
                     if nginx -t 2>&1; then
-                      nginx_reload
-                      echo "nginx reloaded"
+                      nginx_reload && echo "nginx reloaded"
                       sleep 3
-
-                      # Verify BOTH licitometro and cotizAR are healthy
                       VERIFY=$(curl -sf --max-time 5 "http://127.0.0.1/cotizar/health" 2>/dev/null || echo "")
                       echo "cotizAR proxy: ${VERIFY:-EMPTY}"
-
-                      if licitometro_ok; then
-                        echo "Licitometro after injection: OK"
-                        echo "$VERIFY" | grep -q '"status"' && PROXY_OK=true || PROXY_OK=false
-                      else
-                        echo "ERROR: Licitometro BROKEN after injection — restoring backup"
+                      LICIT_AFTER=$(licit_http)
+                      echo "Licitometro after: HTTP $LICIT_AFTER"
+                      if [ "$LICIT_AFTER" = "000" ]; then
+                        echo "ERROR: licitometro broken — restoring"
                         cp "${VHOST_CONF}.bak" "$VHOST_CONF"
-                        nginx_reload
-                        sleep 2
-                        licitometro_ok && echo "Licitometro restored OK" || echo "Licitometro STILL broken after restore"
-                        echo "Injected config was:"
+                        nginx_reload; sleep 2
+                        echo "Licitometro restored: HTTP $(licit_http)"
+                        echo "=== INJECTED CONFIG (for debug) ==="
                         cat "${VHOST_CONF}.bak"
-                        echo ""
-                        echo "Patched config that broke it:"
-                        python3 /tmp/nginx_inject.py /dev/stdin "$DEPLOY_PORT" < "${VHOST_CONF}.bak" 2>/dev/null || true
+                      else
+                        echo "$VERIFY" | grep -q '"status"' && PROXY_OK=true || PROXY_OK=false
                       fi
                     else
-                      echo "nginx -t FAILED — restoring backup"
+                      echo "nginx -t FAILED — restoring"
                       cp "${VHOST_CONF}.bak" "$VHOST_CONF"
                       nginx_reload 2>/dev/null || true
                     fi
                   else
-                    echo "Python inject script FAILED — config not modified"
+                    echo "Inject script failed — no changes"
                     cp "${VHOST_CONF}.bak" "$VHOST_CONF"
                   fi
                 else
-                  echo "VHOST CONFIG NOT FOUND"
-                  echo "nginx -T config files:"
-                  nginx -T 2>/dev/null | grep -E "^# configuration file|server_name|listen 80|location\s+/" | head -30
+                  echo "VHOST NOT FOUND"
+                  nginx -T 2>/dev/null | grep -E "^# configuration file|server_name|listen 80" | head -20
                 fi
               fi
             fi
