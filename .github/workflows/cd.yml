@@ -77,8 +77,9 @@ jobs:
               exit 1
             fi
             echo "Using: $COMPOSE"
-            $COMPOSE build --no-cache cotizar-api
-            $COMPOSE up -d cotizar-api
+            echo "=== Dockerfile (confirma versión en VPS) ==="
+            head -20 Dockerfile
+            $COMPOSE up -d --build cotizar-api
             docker image prune -f 2>/dev/null || true
 
             # ── 4. HEALTH CHECK ───────────────────────
