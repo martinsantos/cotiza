@@ -1,0 +1,36 @@
+name: CD - Deploy to licitometro.ar
+
+on:
+  push:
+    branches: [master, main, 'claude/**']
+  workflow_dispatch:
+
+env:
+  DEPLOY_PORT: "3001"
+  IMAGE: ghcr.io/martinsantos/cotiza:latest
+
+jobs:
+  deploy:
+    name: Build & deploy
+    runs-on: self-hosted          # corre en el VPS, cero créditos de GitHub
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Build en el propio VPS – no necesita push a GHCR ni pull posterior
+      - name: Build Docker image
+        run: docker build -t ${{ env.IMAGE }} .
+
+      # deploy.sh ya tiene: network, force-recreate, healthcheck, nginx
+      - name: Deploy
+        env:
+          DEPLOY_PORT: ${{ env.DEPLOY_PORT }}
+          IMAGE: ${{ env.IMAGE }}
+        run: |
+          DEPLOY_DIR="$GITHUB_WORKSPACE" \
+          DEPLOY_PORT="$DEPLOY_PORT" \
+          IMAGE="$IMAGE" \
+            bash scripts/deploy.sh --no-pull

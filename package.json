@@ -12,7 +12,8 @@
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
     "api": "tsx src/api/server.ts",
-    "test": "vitest"
+    "test": "vitest --passWithNoTests",
+    "typecheck": "tsc --noEmit"
   },
   "keywords": [
     "cli",
