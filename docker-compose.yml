@@ -15,6 +15,9 @@ services:
       - BASE_PATH=/cotizar
     volumes:
       - cotizar-bids:/app/bids
+    networks:
+      - cotizar-network
+      - licitometro_internal
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/cotizar/health"]
       interval: 30s
@@ -40,5 +43,7 @@ volumes:
   cotizar-bids:
 
 networks:
-  default:
+  cotizar-network:
     name: cotizar-network
+  licitometro_internal:
+    external: true
