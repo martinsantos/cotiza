@@ -10,7 +10,7 @@ on:
 jobs:
   ci:
     name: Typecheck, Test & Build
-    runs-on: ubuntu-latest
+    runs-on: self-hosted          # corre en el VPS, cero créditos de GitHub
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

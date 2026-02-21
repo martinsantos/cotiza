@@ -6,81 +6,31 @@ on:
   workflow_dispatch:
 
 env:
-  DEPLOY_DIR: /opt/cotizar
   DEPLOY_PORT: "3001"
   IMAGE: ghcr.io/martinsantos/cotiza:latest
 
 jobs:
   deploy:
     name: Build & deploy
-    runs-on: ubuntu-latest
+    runs-on: self-hosted          # corre en el VPS, cero créditos de GitHub
     concurrency:
       group: production-deploy
       cancel-in-progress: true
-    permissions:
-      contents: read
-      packages: write   # needed to push to GHCR
 
     steps:
       - uses: actions/checkout@v4
 
-      # Build image on GitHub runner (has npm network access)
+      # Build en el propio VPS – no necesita push a GHCR ni pull posterior
       - name: Build Docker image
         run: docker build -t ${{ env.IMAGE }} .
 
-      # Push to GHCR so the VPS can pull directly (no SSH pipe)
-      - name: Login to GHCR
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-
-      - name: Push image to GHCR
-        run: docker push ${{ env.IMAGE }}
-
-      # Deploy: VPS pulls from GHCR, runs deploy.sh
-      - name: Deploy on VPS
-        uses: appleboy/ssh-action@v1.0.3
+      # deploy.sh ya tiene: network, force-recreate, healthcheck, nginx
+      - name: Deploy
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_ACTOR: ${{ github.actor }}
-          DEPLOY_DIR: ${{ env.DEPLOY_DIR }}
           DEPLOY_PORT: ${{ env.DEPLOY_PORT }}
           IMAGE: ${{ env.IMAGE }}
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          envs: GH_TOKEN,GITHUB_ACTOR,DEPLOY_DIR,DEPLOY_PORT,IMAGE
-          command_timeout: 10m
-          script: |
-            set -euo pipefail
-            BRANCH="${{ github.ref_name }}"
-            echo "========================================"
-            echo "  cotizAR Deploy → $BRANCH"
-            echo "========================================"
-
-            # ── 1. GIT UPDATE ─────────────────────────
-            echo ""
-            echo "--- Git update ---"
-            REPO_URL="https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
-            if [ ! -d "$DEPLOY_DIR/.git" ]; then
-              mkdir -p "$DEPLOY_DIR"
-              git clone -b "$BRANCH" "$REPO_URL" "$DEPLOY_DIR"
-            fi
-            cd "$DEPLOY_DIR"
-            git remote set-url origin "$REPO_URL"
-            git fetch origin "$BRANCH"
-            git checkout "$BRANCH" 2>/dev/null || git checkout -b "$BRANCH" "origin/$BRANCH"
-            git reset --hard "origin/$BRANCH"
-            echo "Commit: $(git log --oneline -1)"
-
-            # ── 2. PULL IMAGE FROM GHCR ───────────────
-            echo ""
-            echo "--- Docker pull from GHCR ---"
-            echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-            docker pull "$IMAGE"
-
-            # ── 3. DEPLOY ─────────────────────────────
-            echo ""
-            echo "--- deploy.sh ---"
-            chmod +x "$DEPLOY_DIR/scripts/deploy.sh"
-            DEPLOY_DIR="$DEPLOY_DIR" DEPLOY_PORT="$DEPLOY_PORT" IMAGE="$IMAGE" \
-              bash "$DEPLOY_DIR/scripts/deploy.sh" --no-pull
+        run: |
+          DEPLOY_DIR="$GITHUB_WORKSPACE" \
+          DEPLOY_PORT="$DEPLOY_PORT" \
+          IMAGE="$IMAGE" \
+            bash scripts/deploy.sh --no-pull
