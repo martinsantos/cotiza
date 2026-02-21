@@ -145,6 +145,8 @@ router.post('/api/bids', async (req: Request, res: Response) => {
     const bid = await bidService.create(tenderId);
     res.status(201).json(bid);
   } catch (error) {
+    const msg = (error as Error).message || '';
+    if (msg.includes('not found')) return res.status(404).json({ error: msg });
     res.status(500).json({ error: 'Failed to create bid' });
   }
 });
@@ -155,6 +157,8 @@ router.post('/api/bids/:id/analyze', async (req: Request, res: Response) => {
     const analysis = await bidService.analyze(req.params.id);
     res.json(analysis);
   } catch (error) {
+    const msg = (error as Error).message || '';
+    if (msg.includes('not found')) return res.status(404).json({ error: msg });
     res.status(500).json({ error: 'Failed to analyze bid' });
   }
 });
@@ -166,6 +170,8 @@ router.post('/api/bids/:id/calculate', async (req: Request, res: Response) => {
     const pricing = await bidService.calculatePricing(req.params.id, costs);
     res.json(pricing);
   } catch (error) {
+    const msg = (error as Error).message || '';
+    if (msg.includes('not found')) return res.status(404).json({ error: msg });
     res.status(500).json({ error: 'Failed to calculate pricing' });
   }
 });
@@ -180,6 +186,8 @@ router.post('/api/bids/:id/documents', async (req: Request, res: Response) => {
     const doc = await bidService.generateDocument(req.params.id, type);
     res.json(doc);
   } catch (error) {
+    const msg = (error as Error).message || '';
+    if (msg.includes('not found')) return res.status(404).json({ error: msg });
     res.status(500).json({ error: 'Failed to generate document' });
   }
 });

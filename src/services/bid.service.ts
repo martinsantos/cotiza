@@ -204,18 +204,21 @@ export class BidService {
       throw new Error(`Tender not found for bid ${bidId}`);
     }
 
-    const compliantItems = bid.commercialOffer.total <= tender.budget;
+    const hasPricing = bid.commercialOffer.total > 0;
+    const compliantItems = hasPricing && bid.commercialOffer.total <= tender.budget;
     const hasExperience = bid.technicalProposal.experience.length > 0;
+    const allCompliant = bid.complianceMatrix.length > 0 && bid.complianceMatrix.every(c => c.compliant);
 
     const strengths: string[] = [];
     if (compliantItems) strengths.push('Precio dentro del presupuesto');
     if (hasExperience) strengths.push('Antecedentes documentados');
-    if (bid.complianceMatrix.every(c => c.compliant)) strengths.push('Cumplimiento total de requisitos');
+    if (allCompliant) strengths.push('Cumplimiento total de requisitos');
 
     const weaknesses: string[] = [];
-    if (!compliantItems) weaknesses.push('Precio excede el presupuesto');
-    if (!hasExperience) weaknesses.push('Faltan antecedentes');
-    if (bid.complianceMatrix.some(c => !c.compliant)) weaknesses.push('Algunos requisitos no cumplidos');
+    if (!hasPricing) weaknesses.push('Sin precio calculado — usá "Calcular" primero');
+    else if (!compliantItems) weaknesses.push('Precio excede el presupuesto');
+    if (!hasExperience) weaknesses.push('Faltan antecedentes de la empresa');
+    if (bid.complianceMatrix.length > 0 && bid.complianceMatrix.some(c => !c.compliant)) weaknesses.push('Algunos requisitos no cumplidos');
 
     const risks: RiskItem[] = [];
     const daysUntilClose = Math.ceil(
@@ -240,10 +243,10 @@ export class BidService {
       });
     }
 
-    let winProbability = 50;
+    let winProbability = hasPricing ? 50 : 30;
     if (compliantItems) winProbability += 15;
     if (hasExperience) winProbability += 15;
-    if (bid.complianceMatrix.every(c => c.compliant)) winProbability += 20;
+    if (allCompliant) winProbability += 20;
 
     const analysis: BidAnalysis = {
       strengths,
