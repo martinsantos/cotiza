@@ -11,7 +11,7 @@ set -euo pipefail
 DEPLOY_DIR="${DEPLOY_DIR:-/opt/cotizar}"
 DEPLOY_PORT="${DEPLOY_PORT:-3001}"
 IMAGE="${IMAGE:-ghcr.io/martinsantos/cotiza:latest}"
-BRANCH="${BRANCH:-master}"
+BRANCH="${BRANCH:-main}"
 LOG="/var/log/cotizar-watch.log"
 LOCK="/tmp/cotizar-deploy.lock"
 
