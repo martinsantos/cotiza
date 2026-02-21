@@ -1,12 +1,56 @@
-import { Bid, CommercialOffer, TechnicalProposal, ComplianceItem, BidAnalysis, RiskItem, GeneratedDocument } from '../types/index.js';
+import { Bid, CommercialOffer, BidAnalysis, RiskItem, GeneratedDocument } from '../types/index.js';
 import { v4 as uuidv4 } from 'uuid';
 import { tenderService } from './tender.service.js';
 import { getConfig } from '../config/index.js';
+import fs from 'fs/promises';
+import path from 'path';
+
+const BIDS_DIR = process.env.BIDS_DIR || '/app/bids';
 
 export class BidService {
   private bids: Map<string, Bid> = new Map();
+  private initialized = false;
+
+  private async ensureDir(): Promise<void> {
+    await fs.mkdir(BIDS_DIR, { recursive: true });
+  }
+
+  private async saveToDisk(bid: Bid): Promise<void> {
+    await this.ensureDir();
+    await fs.writeFile(path.join(BIDS_DIR, `${bid.id}.json`), JSON.stringify(bid, null, 2), 'utf-8');
+  }
+
+  private async deleteFromDisk(id: string): Promise<void> {
+    try {
+      await fs.unlink(path.join(BIDS_DIR, `${id}.json`));
+    } catch {
+      // ignore if not found
+    }
+  }
+
+  private async loadFromDisk(): Promise<void> {
+    if (this.initialized) return;
+    this.initialized = true;
+    try {
+      await this.ensureDir();
+      const files = await fs.readdir(BIDS_DIR);
+      for (const file of files) {
+        if (!file.endsWith('.json')) continue;
+        try {
+          const raw = await fs.readFile(path.join(BIDS_DIR, file), 'utf-8');
+          const bid = JSON.parse(raw) as Bid;
+          this.bids.set(bid.id, bid);
+        } catch {
+          // skip corrupt files
+        }
+      }
+    } catch {
+      // ignore if dir unreadable
+    }
+  }
 
   async create(tenderId: string): Promise<Bid> {
+    await this.loadFromDisk();
     const tender = await tenderService.getById(tenderId);
     if (!tender) {
       throw new Error(`Tender ${tenderId} not found`);
@@ -59,10 +103,12 @@ export class BidService {
     };
 
     this.bids.set(bid.id, bid);
+    await this.saveToDisk(bid);
     return bid;
   }
 
   async getById(id: string): Promise<Bid | null> {
+    await this.loadFromDisk();
     return this.bids.get(id) || null;
   }
 
@@ -71,6 +117,7 @@ export class BidService {
     status?: string;
     companyId?: string;
   }): Promise<Bid[]> {
+    await this.loadFromDisk();
     let results = Array.from(this.bids.values());
 
     if (filters) {
@@ -89,6 +136,7 @@ export class BidService {
   }
 
   async update(id: string, data: Partial<Bid>): Promise<Bid | null> {
+    await this.loadFromDisk();
     const existing = this.bids.get(id);
     if (!existing) return null;
 
@@ -98,11 +146,15 @@ export class BidService {
       updatedAt: new Date().toISOString()
     };
     this.bids.set(id, updated);
+    await this.saveToDisk(updated);
     return updated;
   }
 
   async delete(id: string): Promise<boolean> {
-    return this.bids.delete(id);
+    await this.loadFromDisk();
+    const deleted = this.bids.delete(id);
+    if (deleted) await this.deleteFromDisk(id);
+    return deleted;
   }
 
   async calculatePricing(bidId: string, costs: {
@@ -152,28 +204,24 @@ export class BidService {
       throw new Error(`Tender not found for bid ${bidId}`);
     }
 
-    // Analyze compliance
     const compliantItems = bid.commercialOffer.total <= tender.budget;
     const hasExperience = bid.technicalProposal.experience.length > 0;
-    
-    // Calculate strengths
+
     const strengths: string[] = [];
     if (compliantItems) strengths.push('Precio dentro del presupuesto');
     if (hasExperience) strengths.push('Antecedentes documentados');
     if (bid.complianceMatrix.every(c => c.compliant)) strengths.push('Cumplimiento total de requisitos');
 
-    // Calculate weaknesses
     const weaknesses: string[] = [];
     if (!compliantItems) weaknesses.push('Precio excede el presupuesto');
     if (!hasExperience) weaknesses.push('Faltan antecedentes');
     if (bid.complianceMatrix.some(c => !c.compliant)) weaknesses.push('Algunos requisitos no cumplidos');
 
-    // Risk assessment
     const risks: RiskItem[] = [];
     const daysUntilClose = Math.ceil(
       (new Date(tender.closingDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
     );
-    
+
     if (daysUntilClose < 7) {
       risks.push({
         description: 'Poco tiempo restante para presentación',
@@ -192,7 +240,6 @@ export class BidService {
       });
     }
 
-    // Win probability calculation
     let winProbability = 50;
     if (compliantItems) winProbability += 15;
     if (hasExperience) winProbability += 15;
@@ -210,7 +257,7 @@ export class BidService {
       winProbability
     };
 
-    await this.update(bidId, { 
+    await this.update(bidId, {
       analysis,
       competitivenessScore: winProbability
     });
@@ -243,6 +290,7 @@ export class BidService {
       updatedAt: new Date().toISOString()
     };
     this.bids.set(bidId, updated);
+    await this.saveToDisk(updated);
 
     return doc;
   }
@@ -261,6 +309,7 @@ export class BidService {
     };
 
     this.bids.set(newBid.id, newBid);
+    await this.saveToDisk(newBid);
     return newBid;
   }
 

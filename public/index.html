@@ -909,15 +909,23 @@
         // === BIDS ===
         async function loadBids() {
             try {
-                bidsCache = await apiFetch('/bids');
+                [bidsCache, tendersCache] = await Promise.all([
+                    apiFetch('/bids'),
+                    tendersCache.length ? Promise.resolve(tendersCache) : apiFetch('/tenders')
+                ]);
                 if (!bidsCache.length) {
                     document.getElementById('bids-table').innerHTML = '<tr><td colspan="7"><div class="empty-state"><div class="icon">&#9998;</div><p>No hay cotizaciones. Crea una desde una licitacion.</p></div></td></tr>';
                     return;
                 }
-                document.getElementById('bids-table').innerHTML = bidsCache.map(b => `
+                document.getElementById('bids-table').innerHTML = bidsCache.map(b => {
+                    const tender = tendersCache.find(t => t.id === b.tenderId);
+                    const tenderDisplay = tender
+                        ? `<strong>${tender.number}</strong><br><small style="color:var(--text-muted);">${tender.title.substring(0, 38)}${tender.title.length > 38 ? '...' : ''}</small>`
+                        : `<small style="color:var(--text-muted);">${b.tenderId.substring(0, 12)}…</small>`;
+                    return `
                     <tr>
-                        <td><strong style="font-size: 12px;">${b.id.substring(0, 12)}...</strong></td>
-                        <td style="font-size: 12px;">${b.tenderId}</td>
+                        <td><strong style="font-size: 12px;">${b.id}</strong></td>
+                        <td style="font-size: 12px;">${tenderDisplay}</td>
                         <td><span class="badge badge-${b.status}">${b.status}</span></td>
                         <td>${b.commercialOffer?.total ? '$' + b.commercialOffer.total.toLocaleString('es-AR') : '-'}</td>
                         <td>${b.competitivenessScore ? b.competitivenessScore + '%' : '-'}</td>
@@ -927,7 +935,7 @@
                             <button class="btn btn-sm btn-outline" onclick="openCalculateModal('${b.id}')">Calcular</button>
                         </td>
                     </tr>
-                `).join('');
+                `; }).join('');
             } catch (error) {
                 document.getElementById('bids-table').innerHTML = '<tr><td colspan="7"><div class="alert alert-danger">Error cargando cotizaciones</div></td></tr>';
             }
