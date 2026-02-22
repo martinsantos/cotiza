@@ -4,6 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>cotizAR - Licitometro.ar | Armador de Cotizaciones</title>
+    <!-- __BASE_PATH__ -->
+    <meta name="description" content="Armador de cotizaciones para licitaciones publicas argentinas. Genera ofertas competitivas con datos de LICITOMETRO.AR">
+    <meta name="keywords" content="cotizaciones, licitaciones, Argentina, compras publicas, licitometro">
+    <meta property="og:title" content="cotizAR - Armador de Cotizaciones | Licitometro.ar">
+    <meta property="og:description" content="Herramienta para armar cotizaciones competitivas para licitaciones publicas argentinas">
+    <meta property="og:url" content="https://www.licitometro.ar/cotizar">
+    <meta property="og:type" content="website">
+    <link rel="canonical" href="https://www.licitometro.ar/cotizar">
     <style>
         :root {
             --primary: #e94560;
@@ -649,32 +657,43 @@
 
     <script>
         // === CONFIG ===
-        // Detect base path for sub-path deployments (e.g. /cotizar on licitometro.ar)
-        const _basePath = window.location.pathname.replace(/\/$/, '');
+        // Use server-injected BASE_PATH, falling back to pathname detection for dev
+        const _basePath = (typeof window.__BASE_PATH__ === 'string')
+            ? window.__BASE_PATH__
+            : window.location.pathname.replace(/\/+$/, '').replace(/\/[^/]*$/, '') || '';
         const API_URL = _basePath + '/api';
         let tendersCache = [];
         let bidsCache = [];
         let currentDetailTenderId = null;
 
-        // === NAVIGATION ===
+        // === NAVIGATION (hash-based for /cotizar sub-navigation) ===
+        const sectionTitles = {
+            dashboard: 'Dashboard', tenders: 'Licitaciones', bids: 'Cotizaciones',
+            market: 'Informacion de Mercado', competitive: 'Analisis de Competitividad',
+            legal: 'Cumplimiento Legal', tracking: 'Seguimiento',
+            licitometro: 'LICITOMETRO - Sincronizacion', config: 'Configuracion'
+        };
+
         document.querySelectorAll('.nav-item').forEach(item => {
             item.addEventListener('click', () => {
-                document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
-                item.classList.add('active');
-                showSection(item.dataset.section);
+                navigateTo(item.dataset.section);
             });
         });
 
+        function navigateTo(section) {
+            if (section && sectionTitles[section]) {
+                window.location.hash = section === 'dashboard' ? '' : section;
+            }
+        }
+
         function showSection(id) {
+            if (!id || !document.getElementById(id)) id = 'dashboard';
             document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
             document.getElementById(id).classList.add('active');
-            const titles = {
-                dashboard: 'Dashboard', tenders: 'Licitaciones', bids: 'Cotizaciones',
-                market: 'Informacion de Mercado', competitive: 'Analisis de Competitividad',
-                legal: 'Cumplimiento Legal', tracking: 'Seguimiento',
-                licitometro: 'LICITOMETRO - Sincronizacion', config: 'Configuracion'
-            };
-            document.getElementById('page-title').textContent = titles[id] || id;
+            document.querySelectorAll('.nav-item').forEach(i => {
+                i.classList.toggle('active', i.dataset.section === id);
+            });
+            document.getElementById('page-title').textContent = sectionTitles[id] || id;
             closeDetailPanel();
 
             switch(id) {
@@ -689,6 +708,12 @@
                 case 'config': loadConfig(); break;
             }
         }
+
+        // Handle hash-based routing (e.g. /cotizar#tenders)
+        window.addEventListener('hashchange', () => {
+            const section = window.location.hash.replace('#', '') || 'dashboard';
+            showSection(section);
+        });
 
         // === TOAST NOTIFICATIONS ===
         function showToast(message, type = 'info') {
@@ -1264,7 +1289,9 @@
         });
 
         // === INIT ===
-        loadDashboard();
+        // Respect hash on initial load (e.g. /cotizar#tenders)
+        const initialSection = window.location.hash.replace('#', '') || 'dashboard';
+        showSection(initialSection);
     </script>
 </body>
 </html>
