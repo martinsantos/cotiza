@@ -32,9 +32,22 @@ router.get('/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Inject BASE_PATH into index.html so the frontend knows where the API is
+// Read index.html once and inject BASE_PATH so the frontend knows where the API lives
+import { readFileSync } from 'fs';
+let indexHtml: string | null = null;
+function getIndexHtml(): string {
+  if (!indexHtml) {
+    indexHtml = readFileSync(path.join(publicPath, 'index.html'), 'utf-8');
+  }
+  const injected = indexHtml.replace(
+    '<!-- __BASE_PATH__ -->',
+    `<script>window.__BASE_PATH__ = ${JSON.stringify(BASE_PATH)};</script>`
+  );
+  return injected;
+}
+
 router.get('/', (_req: Request, res: Response) => {
-  res.sendFile(path.join(publicPath, 'index.html'));
+  res.type('html').send(getIndexHtml());
 });
 
 // Serve static files
@@ -471,7 +484,7 @@ router.get('/api/config', (_req: Request, res: Response) => {
 
 // SPA fallback: serve index.html for unknown routes
 router.get('*', (_req: Request, res: Response) => {
-  res.sendFile(path.join(publicPath, 'index.html'));
+  res.type('html').send(getIndexHtml());
 });
 
 // Mount router at BASE_PATH when set (handles proxy that preserves the prefix)
