@@ -171,7 +171,7 @@ export class BidService {
     }
 
     const config = getConfig();
-    const subtotal = costs.labor + costs.materials + costs.equipment + costs.overhead + costs.other;
+    const subtotal = (costs.labor || 0) + (costs.materials || 0) + (costs.equipment || 0) + (costs.overhead || 0) + (costs.other || 0);
     const discount = costs.discount || 0;
     const discountedSubtotal = subtotal * (1 - discount / 100);
     const taxAmount = discountedSubtotal * (config.defaults.taxRate / 100);
