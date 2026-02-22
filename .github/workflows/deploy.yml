@@ -1,25 +1,21 @@
-name: Deploy cotizAR → VPS
+# Deploy deshabilitado — no usamos GitHub Actions.
+# El deploy se hace via cron + watch.sh en el VPS:
+#   cron (cada 1 min) → scripts/watch.sh → scripts/deploy.sh
+#
+# Para instalar: bash /opt/cotizar/scripts/install-watch.sh
+# Para deploy manual: bash /opt/cotizar/scripts/deploy.sh
+#
+# Ver log: tail -f /var/log/cotizar-watch.log
+
+name: Deploy cotizAR → VPS (disabled)
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 jobs:
   deploy:
     name: Deploy → VPS
+    if: false
     runs-on: ubuntu-latest
     steps:
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          script: |
-            set -e
-            cd ${{ secrets.VPS_PATH }}
-            git fetch origin main
-            git reset --hard origin/main
-            docker compose up -d --build cotizar-api
-            echo "Deploy OK → http://$(hostname -I | awk '{print $1}'):3001/cotizar/"
+      - run: echo "Deploy via cron/watch.sh — no Actions"
