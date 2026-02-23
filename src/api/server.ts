@@ -442,6 +442,28 @@ router.get('/api/licitometro/status', (_req: Request, res: Response) => {
   }
 });
 
+// ============ SCRAPERS ============
+
+// Get scraper health from licitometro.ar backend
+router.get('/api/scrapers/health', async (_req: Request, res: Response) => {
+  try {
+    const health = await licitometroService.getScraperHealth();
+    res.json(health);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to get scraper health' });
+  }
+});
+
+// Get scraper configurations
+router.get('/api/scrapers/configs', async (_req: Request, res: Response) => {
+  try {
+    const configs = await licitometroService.getScraperConfigs();
+    res.json(configs);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to get scraper configs' });
+  }
+});
+
 // Get jurisdicciones
 router.get('/api/licitometro/jurisdicciones', async (_req: Request, res: Response) => {
   try {

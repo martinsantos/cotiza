@@ -241,6 +241,28 @@ export class LicitometroService {
     };
   }
 
+  async getScraperHealth(): Promise<Record<string, unknown>> {
+    try {
+      const response = await this.client.get('/health', { timeout: 10000 });
+      return response.data as Record<string, unknown>;
+    } catch (error) {
+      return {
+        status: 'error',
+        error: error instanceof Error ? error.message : 'No se pudo conectar con licitometro.ar',
+        timestamp: new Date().toISOString()
+      };
+    }
+  }
+
+  async getScraperConfigs(): Promise<Record<string, unknown>[]> {
+    try {
+      const response = await this.client.get('/scraper-configs', { timeout: 10000 });
+      return Array.isArray(response.data) ? response.data : [];
+    } catch {
+      return [];
+    }
+  }
+
   async getJurisdicciones(): Promise<string[]> {
     try {
       const response = await this.client.get<string[]>('/meta/jurisdicciones');
