@@ -1,18 +1,30 @@
 import sys, re
 
 conf_file = sys.argv[1]
-port = sys.argv[2]
+# argv[2] can be:
+#   - a plain port number → proxy to http://127.0.0.1:{port}
+#   - "host:port"         → proxy to http://host:port   (Docker mode)
+#   - "host:port/path"    → proxy to http://host:port/path
+arg2 = sys.argv[2]
+if arg2.isdigit():
+    proxy_target = f"http://127.0.0.1:{arg2}"
+elif arg2.startswith("http://") or arg2.startswith("https://"):
+    proxy_target = arg2.rstrip("/")
+else:
+    proxy_target = f"http://{arg2}"
 
 BLOCK = (
     "\n    # cotizAR managed block - DO NOT REMOVE"
     "\n    location ^~ /cotizar {"
-    "\n        proxy_pass http://127.0.0.1:" + port + "/cotizar;"
+    f"\n        proxy_pass {proxy_target};"
     "\n        proxy_http_version 1.1;"
+    "\n        proxy_set_header Upgrade $http_upgrade;"
+    "\n        proxy_set_header Connection 'upgrade';"
     "\n        proxy_set_header Host $host;"
     "\n        proxy_set_header X-Real-IP $remote_addr;"
     "\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;"
     "\n        proxy_set_header X-Forwarded-Proto $scheme;"
-    "\n        proxy_read_timeout 30s;"
+    "\n        proxy_read_timeout 120s;"
     "\n        proxy_connect_timeout 5s;"
     "\n    }"
 )

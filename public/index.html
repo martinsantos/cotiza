@@ -255,6 +255,9 @@
                 <div class="nav-item" data-section="licitometro">
                     <span class="icon">&#8635;</span> LICITOMETRO Sync
                 </div>
+                <div class="nav-item" data-section="scrapers">
+                    <span class="icon">&#128269;</span> Scrapers
+                </div>
                 <div class="nav-item" data-section="config">
                     <span class="icon">&#9881;</span> Configuracion
                 </div>
@@ -495,6 +498,21 @@
                     </div>
                 </div>
 
+                <!-- ====== SCRAPERS ====== -->
+                <div id="scrapers" class="section">
+                    <div class="card">
+                        <div class="card-header">
+                            <span class="card-title">Estado de Scrapers - LICITOMETRO.AR</span>
+                            <button class="btn btn-sm btn-outline" onclick="loadScraperHealth()">Actualizar</button>
+                        </div>
+                        <p style="color: var(--text-light); font-size: 13px; margin-bottom: 15px;">
+                            Salud y estado de los 28 scrapers que alimentan LICITOMETRO.AR
+                        </p>
+                        <div id="scraper-health-summary" style="margin-bottom: 20px;"></div>
+                        <div id="scraper-configs-list"><div class="loading"><div class="spinner"></div>Cargando...</div></div>
+                    </div>
+                </div>
+
                 <!-- ====== CONFIGURACION ====== -->
                 <div id="config" class="section">
                     <div class="grid-2">
@@ -671,7 +689,8 @@
             dashboard: 'Dashboard', tenders: 'Licitaciones', bids: 'Cotizaciones',
             market: 'Informacion de Mercado', competitive: 'Analisis de Competitividad',
             legal: 'Cumplimiento Legal', tracking: 'Seguimiento',
-            licitometro: 'LICITOMETRO - Sincronizacion', config: 'Configuracion'
+            licitometro: 'LICITOMETRO - Sincronizacion',
+            scrapers: 'Scrapers - Estado y Salud', config: 'Configuracion'
         };
 
         document.querySelectorAll('.nav-item').forEach(item => {
@@ -705,6 +724,7 @@
                 case 'legal': loadSelectsFor('legal-tender-select'); break;
                 case 'tracking': loadSelectsFor('tracking-tender-select'); break;
                 case 'licitometro': loadLicitometroSection(); break;
+                case 'scrapers': loadScraperHealth(); break;
                 case 'config': loadConfig(); break;
             }
         }
@@ -1287,6 +1307,139 @@
             e.preventDefault();
             showToast('Parametros de cotizacion guardados', 'success');
         });
+
+        // === SCRAPERS ===
+        const KNOWN_SCRAPERS = [
+            { name: 'ComprasApps Mendoza', key: 'comprasapps_mendoza' },
+            { name: 'MendozaCompra v2', key: 'mendoza_compra_v2' },
+            { name: 'MendozaCompra (legacy)', key: 'mendoza_compra' },
+            { name: 'Boletín Oficial Mendoza', key: 'boletin_oficial_mendoza' },
+            { name: 'AYSAM', key: 'aysam' },
+            { name: 'OSEP', key: 'osep' },
+            { name: 'UNCuyo', key: 'uncuyo' },
+            { name: 'Vialidad Mendoza', key: 'vialidad_mendoza' },
+            { name: 'EPRE Mendoza', key: 'epre' },
+            { name: 'Las Heras', key: 'las_heras' },
+            { name: 'Godoy Cruz', key: 'godoy_cruz' },
+            { name: 'MPF Mendoza', key: 'mpf_mendoza' },
+            { name: 'HTML Genérico', key: 'generic_html' },
+            { name: 'Datos Argentina', key: 'datos_argentina' },
+            { name: 'Contrataciones Abiertas Mza', key: 'contrataciones_abiertas_mza' },
+            { name: 'Banco Mundial', key: 'banco_mundial' },
+            { name: 'BID/IDB', key: 'bid' },
+            { name: 'Santa Fe', key: 'santa_fe' },
+            { name: 'CONTRAT.AR', key: 'contratar_gob_ar' },
+            { name: 'Boletín Oficial Nacional', key: 'boletin_oficial_nacional' },
+            { name: 'PBAC Buenos Aires', key: 'pbac_buenos_aires' },
+            { name: 'Comprar.gob.ar', key: 'comprar_gob_ar' },
+            { name: 'EMESA', key: 'emesa' },
+            { name: 'COMPR.AR nacional', key: 'comprar_nacional' },
+            { name: 'Browser Scraper', key: 'browser' },
+            { name: 'Resilient HTTP', key: 'resilient_http' },
+        ];
+
+        async function loadScraperHealth() {
+            const summaryEl = document.getElementById('scraper-health-summary');
+            const listEl = document.getElementById('scraper-configs-list');
+            summaryEl.innerHTML = '';
+            listEl.innerHTML = '<div class="loading"><div class="spinner"></div>Consultando licitometro.ar...</div>';
+
+            let health = null;
+            let configs = [];
+            try {
+                [health, configs] = await Promise.all([
+                    apiFetch('/scrapers/health').catch(() => ({ status: 'error', error: 'Sin conexión' })),
+                    apiFetch('/scrapers/configs').catch(() => [])
+                ]);
+            } catch (e) {
+                health = { status: 'error', error: String(e) };
+            }
+
+            // Summary cards
+            const isOk = health && health.status !== 'error';
+            const licitCount = health?.licitaciones_count ?? '?';
+            const activeScrapers = health?.active_scrapers ?? '?';
+            const scheduler = health?.scheduler ?? 'unknown';
+            const jobs = health?.scheduled_jobs ?? '?';
+
+            summaryEl.innerHTML = `
+                <div class="stats-grid" style="margin-bottom: 15px;">
+                    <div class="stat-card">
+                        <div class="stat-value" style="color: ${isOk ? 'var(--success)' : 'var(--danger)'}; font-size: 20px;">
+                            ${isOk ? 'OK' : 'ERROR'}
+                        </div>
+                        <div class="stat-label">Estado API</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${typeof licitCount === 'number' ? licitCount.toLocaleString('es-AR') : licitCount}</div>
+                        <div class="stat-label">Licitaciones en DB</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${activeScrapers}</div>
+                        <div class="stat-label">Scrapers Activos</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" style="font-size:16px;">${scheduler}</div>
+                        <div class="stat-label">Scheduler / Jobs: ${jobs}</div>
+                    </div>
+                </div>
+                ${health?.error ? `<div class="alert alert-danger">${health.error}</div>` : ''}
+                ${health?.timestamp ? `<p style="font-size:12px; color: var(--text-muted);">Actualizado: ${new Date(health.timestamp).toLocaleString('es-AR')}</p>` : ''}
+            `;
+
+            // Scraper list: merge configs with known scrapers
+            const configMap = {};
+            (Array.isArray(configs) ? configs : []).forEach(c => {
+                const key = (c.name || c.source_name || c.key || '').toLowerCase().replace(/\s+/g, '_');
+                configMap[key] = c;
+            });
+
+            const scraperRows = KNOWN_SCRAPERS.map(s => {
+                const cfg = configMap[s.key] || {};
+                const enabled = cfg.enabled !== undefined ? cfg.enabled : null;
+                const lastRun = cfg.last_run || cfg.last_scraped || null;
+                const status = cfg.status || (enabled === false ? 'disabled' : 'unknown');
+
+                let statusBadge = '';
+                if (enabled === false || status === 'disabled') {
+                    statusBadge = '<span class="badge badge-cerrada">Deshabilitado</span>';
+                } else if (status === 'ok' || status === 'active') {
+                    statusBadge = '<span class="badge badge-abierta">Activo</span>';
+                } else if (status === 'error') {
+                    statusBadge = '<span class="badge badge-desierta">Error</span>';
+                } else {
+                    statusBadge = '<span class="badge badge-draft">-</span>';
+                }
+
+                return `<tr>
+                    <td><strong>${s.name}</strong></td>
+                    <td><code style="font-size:11px; color:var(--text-muted)">${s.key}</code></td>
+                    <td>${statusBadge}</td>
+                    <td style="font-size:12px; color:var(--text-muted)">${lastRun ? new Date(lastRun).toLocaleString('es-AR') : '-'}</td>
+                    <td style="font-size:12px">${cfg.error_count != null ? cfg.error_count + ' errores' : ''}</td>
+                </tr>`;
+            }).join('');
+
+            listEl.innerHTML = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Scraper</th>
+                            <th>Clave</th>
+                            <th>Estado</th>
+                            <th>Último Run</th>
+                            <th>Errores</th>
+                        </tr>
+                    </thead>
+                    <tbody>${scraperRows || '<tr><td colspan="5" style="text-align:center; color:var(--text-muted)">Sin datos de configuracion. El backend puede no tener el endpoint /scraper-configs.</td></tr>'}</tbody>
+                </table>
+                <p style="margin-top: 12px; font-size: 12px; color: var(--text-muted);">
+                    Fuente: <a href="https://www.licitometro.ar/api/health" target="_blank" style="color:var(--info)">licitometro.ar/api/health</a>
+                    &nbsp;|&nbsp;
+                    <a href="https://github.com/martinsantos/licitometro/tree/main/backend/scrapers" target="_blank" style="color:var(--info)">Ver scrapers en GitHub</a>
+                </p>
+            `;
+        }
 
         // === INIT ===
         // Respect hash on initial load (e.g. /cotizar#tenders)
