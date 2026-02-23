@@ -42,10 +42,21 @@ docker network inspect licitometro_internal &>/dev/null \
 
 # ── 2. IMAGEN ────────────────────────────────────────────────────────────────
 if [ "$NO_PULL" = false ]; then
-  log "2/5 · Pull imagen"
-  docker pull "$IMAGE" && log "     OK" || log "     Sin imagen nueva (usando cache local)"
+  # Si existe un Dockerfile local, construir en lugar de pullear
+  if [ -f "$DEPLOY_DIR/Dockerfile" ]; then
+    log "2/5 · Build imagen local (Dockerfile encontrado)"
+    if docker compose -f "$DEPLOY_DIR/docker-compose.yml" build --no-cache cotizar-api 2>&1 | tail -5; then
+      log "     Build OK"
+    else
+      log "     Build falló — intentando pull de GHCR como fallback"
+      docker pull "$IMAGE" && log "     Pull OK" || log "     Sin imagen (usando cache local)"
+    fi
+  else
+    log "2/5 · Pull imagen de GHCR"
+    docker pull "$IMAGE" && log "     OK" || log "     Sin imagen nueva (usando cache local)"
+  fi
 else
-  log "2/5 · Pull omitido (--no-pull)"
+  log "2/5 · Pull/build omitido (--no-pull)"
 fi
 
 # ── 3. RESTART CON FORCE-RECREATE ────────────────────────────────────────────
