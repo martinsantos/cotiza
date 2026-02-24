@@ -2,6 +2,7 @@ import express, { Request, Response, Router } from 'express';
 import cors from 'cors';
 import path, { dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { Tender } from '../types/index.js';
 import { tenderService } from '../services/tender.service.js';
 import { bidService } from '../services/bid.service.js';
 import { patternService } from '../services/pattern.service.js';
