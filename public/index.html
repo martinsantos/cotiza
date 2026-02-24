@@ -207,6 +207,18 @@
         .pricing-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 14px; }
         .pricing-row.total { border-top: 2px solid var(--text); margin-top: 8px; padding-top: 12px; font-size: 18px; font-weight: 700; color: var(--primary); }
 
+        /* Context bar */
+        .context-bar { display: none; background: #fffbeb; border-bottom: 2px solid #fcd34d; padding: 8px 30px; align-items: center; gap: 12px; font-size: 13px; }
+        .context-bar.active { display: flex; }
+        .context-bar .ctx-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px; color: #92400e; white-space: nowrap; }
+        .context-bar .ctx-name { font-weight: 600; color: #1a1a2e; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .context-bar .ctx-btn { background: none; border: 1px solid #d97706; color: #92400e; cursor: pointer; padding: 3px 10px; border-radius: 4px; font-size: 11px; white-space: nowrap; }
+        .context-bar .ctx-btn:hover { background: #fef3c7; }
+
+        /* Favorite star */
+        .btn-fav { background: none; border: none; cursor: pointer; font-size: 16px; padding: 2px 6px; line-height: 1; color: #ccc; transition: color 0.15s; }
+        .btn-fav:hover, .btn-fav.active { color: #f59e0b; }
+
         /* Responsive */
         @media (max-width: 768px) {
             .sidebar { width: 0; overflow: hidden; }
@@ -234,6 +246,9 @@
                 </div>
                 <div class="nav-item" data-section="tenders">
                     <span class="icon">&#9776;</span> Licitaciones
+                </div>
+                <div class="nav-item" data-section="favoritas">
+                    <span class="icon">&#11088;</span> Mis Favoritas
                 </div>
                 <div class="nav-item" data-section="bids">
                     <span class="icon">&#9998;</span> Cotizaciones
@@ -278,6 +293,14 @@
                     <button class="btn btn-outline btn-sm" onclick="syncFromLicitometro()">Sync LICITOMETRO</button>
                     <button class="btn btn-primary btn-sm" onclick="openNewBidModal()">+ Nueva Cotizacion</button>
                 </div>
+            </div>
+
+            <!-- Context bar: shown when an analysis section is active with a context tender -->
+            <div class="context-bar" id="context-bar">
+                <span class="ctx-label">Licitacion activa</span>
+                <span class="ctx-name" id="ctx-tender-name">—</span>
+                <button class="ctx-btn" onclick="clearContext()">✕ Limpiar</button>
+                <button class="ctx-btn" onclick="showSection('tenders')" style="border-color:var(--border); color:var(--text);">Cambiar</button>
             </div>
 
             <div class="content">
@@ -328,6 +351,7 @@
                         <table>
                             <thead>
                                 <tr>
+                                    <th style="width:30px;"></th>
                                     <th>Numero</th>
                                     <th>Titulo</th>
                                     <th>Organismo</th>
@@ -339,7 +363,41 @@
                                 </tr>
                             </thead>
                             <tbody id="tenders-table">
-                                <tr><td colspan="8"><div class="loading"><div class="spinner"></div>Cargando...</div></td></tr>
+                                <tr><td colspan="9"><div class="loading"><div class="spinner"></div>Cargando...</div></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- ====== FAVORITAS ====== -->
+                <div id="favoritas" class="section">
+                    <div class="card" style="margin-bottom:16px;">
+                        <div class="card-header">
+                            <span class="card-title">Mis Licitaciones Favoritas</span>
+                            <div style="display:flex; gap:8px;">
+                                <button class="btn btn-sm btn-outline" onclick="quickSync('Mendoza')">&#9889; Sync Mendoza</button>
+                                <button class="btn btn-sm btn-outline" onclick="quickSync('Nacional')">&#9889; Sync Nacional</button>
+                                <button class="btn btn-sm btn-outline" onclick="loadFavoritesSection()">&#8635; Actualizar</button>
+                            </div>
+                        </div>
+                        <p style="font-size:13px; color:var(--text-muted); margin-bottom:12px;">
+                            Marca con &#11088; las licitaciones que te interesan. Sincroniza desde Mendoza o Nacional para traer licitaciones de LICITOMETRO.
+                        </p>
+                        <div id="fav-sync-result" style="margin-bottom:10px;"></div>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Numero</th>
+                                    <th>Titulo</th>
+                                    <th>Organismo / Region</th>
+                                    <th>Presupuesto</th>
+                                    <th>Cierre</th>
+                                    <th>Estado</th>
+                                    <th>Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody id="favorites-table">
+                                <tr><td colspan="7"><div class="loading"><div class="spinner"></div>Cargando...</div></td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -494,7 +552,11 @@
                                 </select>
                             </div>
                         </div>
-                        <button class="btn btn-primary btn-lg" onclick="syncFromLicitometro()" id="sync-btn">Sincronizar Licitaciones</button>
+                        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:8px;">
+                            <button class="btn btn-primary btn-lg" onclick="syncFromLicitometro()" id="sync-btn">Sincronizar Licitaciones</button>
+                            <button class="btn btn-outline" onclick="quickSync('Mendoza')" title="Sync licitaciones abiertas de Mendoza">&#9889; Solo Mendoza</button>
+                            <button class="btn btn-outline" onclick="quickSync('Nacional')" title="Sync licitaciones abiertas nacionales">&#9889; Solo Nacional</button>
+                        </div>
                         <div id="sync-result" style="margin-top: 20px;"></div>
                     </div>
                 </div>
@@ -915,27 +977,30 @@
 
         // === NAVIGATION (hash-based for /cotizar sub-navigation) ===
         const sectionTitles = {
-            dashboard: 'Dashboard', tenders: 'Licitaciones', bids: 'Cotizaciones',
-            market: 'Informacion de Mercado', competitive: 'Analisis de Competitividad',
-            legal: 'Cumplimiento Legal', tracking: 'Seguimiento',
-            licitometro: 'LICITOMETRO - Sincronizacion',
+            dashboard: 'Dashboard', tenders: 'Licitaciones', favoritas: 'Mis Favoritas',
+            bids: 'Cotizaciones', market: 'Informacion de Mercado',
+            competitive: 'Analisis de Competitividad', legal: 'Cumplimiento Legal',
+            tracking: 'Seguimiento', licitometro: 'LICITOMETRO - Sincronizacion',
             scrapers: 'Scrapers - Estado y Salud', config: 'Configuracion'
         };
 
+        const ANALYSIS_SECTIONS = new Set(['competitive', 'legal', 'tracking']);
+
         document.querySelectorAll('.nav-item').forEach(item => {
             item.addEventListener('click', () => {
-                navigateTo(item.dataset.section);
+                showSection(item.dataset.section);
             });
         });
 
-        function navigateTo(section) {
-            if (section && sectionTitles[section]) {
-                window.location.hash = section === 'dashboard' ? '' : section;
-            }
-        }
-
         function showSection(id) {
             if (!id || !document.getElementById(id)) id = 'dashboard';
+
+            // Update URL without triggering hashchange (history.replaceState)
+            const newHash = id === 'dashboard' ? '' : '#' + id;
+            if (window.location.hash !== newHash) {
+                history.replaceState(null, '', window.location.pathname + newHash);
+            }
+
             document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
             document.getElementById(id).classList.add('active');
             document.querySelectorAll('.nav-item').forEach(i => {
@@ -943,10 +1008,12 @@
             });
             document.getElementById('page-title').textContent = sectionTitles[id] || id;
             closeDetailPanel();
+            updateContextBar(id);
 
             switch(id) {
                 case 'dashboard': loadDashboard(); break;
                 case 'tenders': loadCategoryFilter(); loadTenders(); break;
+                case 'favoritas': loadFavoritesSection(); break;
                 case 'bids': loadBids(); break;
                 case 'market': loadMarket(); break;
                 case 'competitive':
@@ -970,7 +1037,7 @@
             }
         }
 
-        // Handle hash-based routing (e.g. /cotizar#tenders)
+        // Handle hash-based routing (browser back/forward, external links)
         window.addEventListener('hashchange', () => {
             const section = window.location.hash.replace('#', '') || 'dashboard';
             showSection(section);
@@ -1041,22 +1108,16 @@
 
         function analyzeLegalFromDetail() {
             if (!currentDetailTenderId) return;
+            setContext(currentDetailTenderId);
             closeDetailPanel();
             showSection('legal');
-            setTimeout(() => {
-                document.getElementById('legal-tender-select').value = currentDetailTenderId;
-                analyzeLegal();
-            }, 500);
         }
 
         function analyzeCompetitiveFromDetail() {
             if (!currentDetailTenderId) return;
+            setContext(currentDetailTenderId);
             closeDetailPanel();
             showSection('competitive');
-            setTimeout(() => {
-                document.getElementById('competitive-tender-select').value = currentDetailTenderId;
-                analyzeCompetitiveness();
-            }, 500);
         }
 
         // === API HELPERS ===
@@ -1165,10 +1226,10 @@
                 if (status) params.set('status', status);
                 if (category) params.set('category', category);
                 const url = params.toString() ? `/tenders?${params}` : '/tenders';
-                tendersCache = await apiFetch(url);
+                [tendersCache] = await Promise.all([apiFetch(url), loadFavoriteIds()]);
                 renderTendersTable(tendersCache);
             } catch (error) {
-                document.getElementById('tenders-table').innerHTML = '<tr><td colspan="8"><div class="alert alert-danger">Error cargando licitaciones</div></td></tr>';
+                document.getElementById('tenders-table').innerHTML = '<tr><td colspan="9"><div class="alert alert-danger">Error cargando licitaciones</div></td></tr>';
             }
         }
 
@@ -1185,23 +1246,32 @@
 
         function renderTendersTable(tenders) {
             if (!tenders.length) {
-                document.getElementById('tenders-table').innerHTML = '<tr><td colspan="8"><div class="empty-state"><p>No se encontraron licitaciones</p></div></td></tr>';
+                document.getElementById('tenders-table').innerHTML = '<tr><td colspan="9"><div class="empty-state"><p>No se encontraron licitaciones</p></div></td></tr>';
                 return;
             }
-            document.getElementById('tenders-table').innerHTML = tenders.map(t => `
-                <tr style="cursor: pointer;" onclick="viewTender('${t.id}')">
+            document.getElementById('tenders-table').innerHTML = tenders.map(t => {
+                const isFav = _favoriteIds.has(t.id);
+                const daysLeft = Math.ceil((new Date(t.closingDate) - new Date()) / 86400000);
+                const daysColor = daysLeft <= 3 ? 'var(--danger)' : daysLeft <= 7 ? 'var(--warning)' : 'var(--text-muted)';
+                return `<tr style="cursor: pointer;" onclick="viewTender('${t.id}')">
+                    <td onclick="event.stopPropagation();">
+                        <button class="btn-fav ${isFav ? 'active' : ''}" onclick="toggleFavorite('${t.id}', this)" title="${isFav ? 'Quitar de favoritas' : 'Agregar a favoritas'}">&#11088;</button>
+                    </td>
                     <td><strong>${t.number}</strong></td>
                     <td>${t.title.substring(0, 45)}${t.title.length > 45 ? '...' : ''}</td>
                     <td style="font-size: 12px;">${t.agency}</td>
                     <td style="font-size: 12px;">${t.category}</td>
                     <td>$${t.budget.toLocaleString('es-AR')}</td>
-                    <td>${new Date(t.closingDate).toLocaleDateString('es-AR')}</td>
-                    <td><span class="badge badge-${t.status}">${t.status}</span></td>
-                    <td onclick="event.stopPropagation();">
-                        <button class="btn btn-sm btn-primary" onclick="openNewBidModal('${t.id}')">Cotizar</button>
+                    <td>${new Date(t.closingDate).toLocaleDateString('es-AR')}
+                        ${t.status === 'abierta' ? `<br><small style="color:${daysColor};">${daysLeft > 0 ? daysLeft + 'd' : 'HOY'}</small>` : ''}
                     </td>
-                </tr>
-            `).join('');
+                    <td><span class="badge badge-${t.status}">${t.status}</span></td>
+                    <td onclick="event.stopPropagation();" style="white-space:nowrap;">
+                        <button class="btn btn-sm btn-primary" onclick="openNewBidModal('${t.id}')">Cotizar</button>
+                        <button class="btn btn-sm btn-outline" onclick="setContext('${t.id}'); showSection('competitive');" title="Analizar competitividad">Analizar</button>
+                    </td>
+                </tr>`;
+            }).join('');
         }
 
         async function searchTenders() {
@@ -1436,8 +1506,44 @@
             }
         }
 
-        // Context: when an offer is open, remember its tenderId so analysis sections can auto-populate
-        let contextTenderId = null;
+        // Context: persist active tender ID for analysis sections (survives hash navigation)
+        let contextTenderId = sessionStorage.getItem('ctx_tender') || null;
+
+        function setContext(tenderId) {
+            contextTenderId = tenderId || null;
+            if (contextTenderId) sessionStorage.setItem('ctx_tender', contextTenderId);
+            else sessionStorage.removeItem('ctx_tender');
+            // Update bar for whichever section is currently active
+            const activeSection = document.querySelector('.section.active')?.id || '';
+            updateContextBar(activeSection);
+        }
+
+        function clearContext() {
+            setContext(null);
+            showToast('Contexto de licitacion eliminado', 'info');
+        }
+
+        async function updateContextBar(currentSection) {
+            const bar = document.getElementById('context-bar');
+            const nameEl = document.getElementById('ctx-tender-name');
+            if (!bar || !nameEl) return;
+
+            if (contextTenderId && ANALYSIS_SECTIONS.has(currentSection)) {
+                bar.classList.add('active');
+                // Look up tender name from cache or fetch
+                let tender = tendersCache.find(t => t.id === contextTenderId);
+                if (!tender) {
+                    try { tender = await apiFetch(`/tenders/${contextTenderId}`); } catch(e) { tender = null; }
+                }
+                if (tender) {
+                    nameEl.textContent = `${tender.number} — ${tender.title.substring(0, 60)}${tender.title.length > 60 ? '...' : ''} (${tender.region})`;
+                } else {
+                    nameEl.textContent = contextTenderId;
+                }
+            } else {
+                bar.classList.remove('active');
+            }
+        }
 
         async function loadSelectsFor(selectId, preselect) {
             try {
@@ -1929,6 +2035,96 @@
             `;
         }
 
+        // ==================== FAVORITES ====================
+        let _favoriteIds = new Set();
+
+        async function loadFavoriteIds() {
+            try {
+                const ids = await apiFetch('/tenders/favorite-ids');
+                _favoriteIds = new Set(Array.isArray(ids) ? ids : []);
+            } catch(e) {
+                _favoriteIds = new Set();
+            }
+        }
+
+        async function toggleFavorite(tenderId, btnEl) {
+            const isFav = _favoriteIds.has(tenderId);
+            try {
+                if (isFav) {
+                    await apiFetch(`/tenders/${tenderId}/favorite`, { method: 'DELETE' });
+                    _favoriteIds.delete(tenderId);
+                    btnEl.classList.remove('active');
+                    showToast('Eliminada de favoritas', 'info');
+                } else {
+                    await apiFetch(`/tenders/${tenderId}/favorite`, { method: 'POST' });
+                    _favoriteIds.add(tenderId);
+                    btnEl.classList.add('active');
+                    showToast('Agregada a favoritas ⭐', 'success');
+                }
+            } catch(e) {
+                showToast('Error actualizando favorita', 'error');
+            }
+        }
+
+        async function loadFavoritesSection() {
+            document.getElementById('favorites-table').innerHTML =
+                '<tr><td colspan="7"><div class="loading"><div class="spinner"></div>Cargando...</div></td></tr>';
+            try {
+                await loadFavoriteIds();
+                const favorites = await apiFetch('/tenders/favorites');
+                if (!favorites.length) {
+                    document.getElementById('favorites-table').innerHTML =
+                        '<tr><td colspan="7"><div class="empty-state"><p>Sin favoritas. Marca licitaciones con &#11088; en la seccion Licitaciones.</p></div></td></tr>';
+                    return;
+                }
+                document.getElementById('favorites-table').innerHTML = favorites.map(t => {
+                    const daysLeft = Math.ceil((new Date(t.closingDate) - new Date()) / 86400000);
+                    const daysColor = daysLeft <= 3 ? 'var(--danger)' : daysLeft <= 7 ? 'var(--warning)' : 'var(--success)';
+                    return `<tr>
+                        <td><strong>${t.number}</strong></td>
+                        <td>${t.title.substring(0, 50)}${t.title.length > 50 ? '...' : ''}</td>
+                        <td style="font-size:12px;">${t.agency}<br><small style="color:var(--text-muted);">${t.region}</small></td>
+                        <td>$${t.budget.toLocaleString('es-AR')} ${t.currency}</td>
+                        <td>${new Date(t.closingDate).toLocaleDateString('es-AR')}
+                            ${t.status === 'abierta' ? `<br><small style="color:${daysColor};">${daysLeft > 0 ? daysLeft + 'd' : 'HOY'}</small>` : ''}
+                        </td>
+                        <td><span class="badge badge-${t.status}">${t.status}</span></td>
+                        <td style="white-space:nowrap;">
+                            <button class="btn btn-sm btn-primary" onclick="openNewBidModal('${t.id}')">Cotizar</button>
+                            <button class="btn btn-sm btn-outline" onclick="setContext('${t.id}'); showSection('competitive');">Analizar</button>
+                            <button class="btn-fav active" onclick="toggleFavorite('${t.id}', this); loadFavoritesSection();" title="Quitar de favoritas">&#11088;</button>
+                        </td>
+                    </tr>`;
+                }).join('');
+            } catch(e) {
+                document.getElementById('favorites-table').innerHTML =
+                    '<tr><td colspan="7"><div class="alert alert-danger">Error cargando favoritas</div></td></tr>';
+            }
+        }
+
+        async function quickSync(jurisdiccion) {
+            const resultEl = document.getElementById('fav-sync-result') || document.getElementById('sync-result');
+            if (resultEl) resultEl.innerHTML = `<div class="alert alert-info">Sincronizando ${jurisdiccion}...</div>`;
+            try {
+                const result = await apiFetch('/licitometro/sync', {
+                    method: 'POST',
+                    body: JSON.stringify({ estado: 'abierta', jurisdiccion, limit: 50 })
+                });
+                if (resultEl) resultEl.innerHTML = `<div class="alert ${result.errors > 0 ? 'alert-warning' : 'alert-success'}">${result.message}</div>`;
+                showToast(result.message, result.errors > 0 ? 'info' : 'success');
+                document.getElementById('sync-indicator').classList.remove('disconnected');
+                document.getElementById('sync-label').textContent = `Sync: ${new Date().toLocaleTimeString('es-AR')}`;
+                // Reload current section if favoritas or tenders
+                const activeId = document.querySelector('.section.active')?.id;
+                if (activeId === 'favoritas') loadFavoritesSection();
+                else if (activeId === 'tenders') loadTenders();
+                else if (activeId === 'dashboard') loadDashboard();
+            } catch(e) {
+                if (resultEl) resultEl.innerHTML = '<div class="alert alert-danger">Error conectando con LICITOMETRO.AR</div>';
+                showToast('Error en sync rapido', 'error');
+            }
+        }
+
         // ==================== OFFER EDITOR ====================
         let currentBidId = null;
         let currentBidData = null;
@@ -1937,8 +2133,8 @@
         function openFromEditor(section) {
             // Save context, close editor, navigate to section
             const tenderId = currentBidData?.tenderId;
+            if (tenderId) setContext(tenderId);
             closeOfferEditor();
-            if (tenderId) contextTenderId = tenderId;
             showSection(section);
         }
 
@@ -1956,7 +2152,7 @@
                 ]);
                 currentBidData = bid;
                 oeTaxRate = config.defaults?.taxRate || 21;
-                contextTenderId = bid.tenderId; // set context for Legal/Competitive/Tracking
+                setContext(bid.tenderId); // set context for Legal/Competitive/Tracking
 
                 // Find tender info
                 let tender = tendersCache.find(t => t.id === bid.tenderId);
@@ -2402,6 +2598,13 @@
         }
 
         // === INIT ===
+        // Load favorite IDs in background
+        loadFavoriteIds().catch(() => {});
+        // Restore context bar if context was persisted in sessionStorage
+        if (contextTenderId) {
+            const initialSection = window.location.hash.replace('#', '') || 'dashboard';
+            updateContextBar(initialSection);
+        }
         // Respect hash on initial load (e.g. /cotizar#tenders)
         const initialSection = window.location.hash.replace('#', '') || 'dashboard';
         showSection(initialSection);

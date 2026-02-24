@@ -8,6 +8,8 @@ const TENDERS_DIR = process.env.TENDERS_DIR || '/app/bids/tenders';
 export class TenderService {
   private tenders: Map<string, Tender> = new Map();
   private initialized = false;
+  private favorites: Set<string> = new Set();
+  private favoritesLoaded = false;
 
   constructor() {
     // Carga lazy — primer uso dispara loadFromDisk()
@@ -147,6 +149,50 @@ export class TenderService {
 
     samples.forEach(t => this.tenders.set(t.id, t));
     console.log('[TenderService] Datos de muestra cargados (sin datos reales en disco)');
+  }
+
+  // ── Favoritos ────────────────────────────────────────────────────────────
+
+  private async loadFavorites(): Promise<void> {
+    if (this.favoritesLoaded) return;
+    this.favoritesLoaded = true;
+    try {
+      await this.ensureDir();
+      const raw = await fs.readFile(path.join(TENDERS_DIR, 'favorites.json'), 'utf-8');
+      const ids = JSON.parse(raw) as string[];
+      this.favorites = new Set(Array.isArray(ids) ? ids : []);
+    } catch { /* file may not exist yet */ }
+  }
+
+  private async saveFavorites(): Promise<void> {
+    await this.ensureDir();
+    await fs.writeFile(path.join(TENDERS_DIR, 'favorites.json'), JSON.stringify([...this.favorites], null, 2), 'utf-8');
+  }
+
+  async addFavorite(id: string): Promise<void> {
+    await this.loadFavorites();
+    this.favorites.add(id);
+    await this.saveFavorites();
+  }
+
+  async removeFavorite(id: string): Promise<void> {
+    await this.loadFavorites();
+    this.favorites.delete(id);
+    await this.saveFavorites();
+  }
+
+  async getFavoriteIds(): Promise<string[]> {
+    await this.loadFavorites();
+    return [...this.favorites];
+  }
+
+  async listFavorites(): Promise<Tender[]> {
+    await this.loadFromDisk();
+    await this.loadFavorites();
+    const results = Array.from(this.tenders.values())
+      .filter(t => this.favorites.has(t.id));
+    results.sort((a, b) => new Date(a.closingDate).getTime() - new Date(b.closingDate).getTime());
+    return results;
   }
 
   // ── API pública ──────────────────────────────────────────────────────────

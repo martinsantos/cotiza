@@ -115,6 +115,43 @@ router.get('/api/tenders/meta/regions', async (_req: Request, res: Response) => 
   }
 });
 
+// Favorites — MUST be before :id route
+router.get('/api/tenders/favorites', async (_req: Request, res: Response) => {
+  try {
+    const tenders = await tenderService.listFavorites();
+    res.json(tenders);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to get favorites' });
+  }
+});
+
+router.get('/api/tenders/favorite-ids', async (_req: Request, res: Response) => {
+  try {
+    const ids = await tenderService.getFavoriteIds();
+    res.json(ids);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to get favorite ids' });
+  }
+});
+
+router.post('/api/tenders/:id/favorite', async (req: Request, res: Response) => {
+  try {
+    await tenderService.addFavorite(req.params.id);
+    res.json({ ok: true, id: req.params.id });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to add favorite' });
+  }
+});
+
+router.delete('/api/tenders/:id/favorite', async (req: Request, res: Response) => {
+  try {
+    await tenderService.removeFavorite(req.params.id);
+    res.json({ ok: true, id: req.params.id });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to remove favorite' });
+  }
+});
+
 // Get tender by ID (after all specific /api/tenders/* routes)
 router.get('/api/tenders/:id', async (req: Request, res: Response) => {
   try {
