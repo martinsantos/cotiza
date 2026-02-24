@@ -14,7 +14,7 @@
 set -euo pipefail
 
 DEPLOY_DIR="${DEPLOY_DIR:-/opt/cotizar}"
-GIT_BRANCH="${GIT_BRANCH:-master}"
+GIT_BRANCH="${GIT_BRANCH:-main}"
 REPO_URL="https://github.com/martinsantos/cotiza.git"
 
 log() { echo "[$(date '+%H:%M:%S')] $*"; }
