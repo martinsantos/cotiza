@@ -343,12 +343,12 @@ router.post('/api/market/update', async (_req: Request, res: Response) => {
 // Analyze legal requirements
 router.post('/api/legal/analyze', async (req: Request, res: Response) => {
   try {
-    const { tenderId } = req.body;
+    const { tenderId, legalConfig } = req.body;
     const tender = await tenderService.getById(tenderId);
     if (!tender) {
       return res.status(404).json({ error: 'Tender not found' });
     }
-    const analysis = await legalService.analyzeLegalRequirements(tender);
+    const analysis = await legalService.analyzeLegalRequirements(tender, legalConfig);
     res.json(analysis);
   } catch (error) {
     res.status(500).json({ error: 'Failed to analyze legal requirements' });
@@ -416,13 +416,15 @@ router.get('/api/tracking/:tenderId/alerts', async (req: Request, res: Response)
 // Analyze competitiveness
 router.post('/api/competitive/analyze', async (req: Request, res: Response) => {
   try {
-    const { tenderId } = req.body;
+    const { tenderId, competitiveConfig } = req.body;
     const tender = await tenderService.getById(tenderId);
     if (!tender) {
       return res.status(404).json({ error: 'Tender not found' });
     }
-    const analysis = await competitiveService.analyze(tender);
-    res.json(analysis);
+    const analysis = await competitiveService.analyze(tender, competitiveConfig);
+    // Include price recommendation in response
+    const priceRec = await competitiveService.getPriceRecommendation(tender, analysis.benchmark);
+    res.json({ ...analysis, priceRecommendation: priceRec });
   } catch (error) {
     res.status(500).json({ error: 'Failed to analyze competitiveness' });
   }
@@ -555,7 +557,9 @@ router.get('/api/config', (_req: Request, res: Response) => {
     res.json({
       company: { name: config.company.name, taxId: config.company.taxId,
         contact: config.company.contact, address: config.company.address },
-      defaults: config.defaults
+      defaults: config.defaults,
+      legal: config.legal,
+      competitive: config.competitive
     });
   } catch (error) {
     res.status(500).json({ error: 'Failed to get config' });
@@ -565,17 +569,23 @@ router.get('/api/config', (_req: Request, res: Response) => {
 // Save config
 router.post('/api/config', (req: Request, res: Response) => {
   try {
-    const { company, defaults } = req.body;
+    const { company, defaults, legal, competitive } = req.body;
     const current = getConfig();
     const merged = {
       ...current,
       company: company ? { ...current.company, ...company } : current.company,
       defaults: defaults ? { ...current.defaults, ...defaults } : current.defaults,
+      legal: legal ? { ...current.legal, ...legal } : current.legal,
+      competitive: competitive ? { ...current.competitive, ...competitive } : current.competitive,
     };
     const saved = saveConfig(merged);
-    res.json({ company: { name: saved.company.name, taxId: saved.company.taxId,
-      contact: saved.company.contact, address: saved.company.address },
-      defaults: saved.defaults });
+    res.json({
+      company: { name: saved.company.name, taxId: saved.company.taxId,
+        contact: saved.company.contact, address: saved.company.address },
+      defaults: saved.defaults,
+      legal: saved.legal,
+      competitive: saved.competitive
+    });
   } catch (error) {
     res.status(500).json({ error: 'Failed to save config' });
   }

@@ -1,4 +1,5 @@
-import { Tender, LegalFramework, LegalClause, PaymentTerms, Guarantees } from '../types/index.js';
+import { Tender, LegalFramework, LegalClause, LegalConfig } from '../types/index.js';
+import { getConfig } from '../config/index.js';
 
 interface LegalClauseTemplate {
   type: string;
@@ -50,24 +51,38 @@ const clauseTemplates: Record<string, LegalClauseTemplate> = {
 };
 
 export class LegalService {
-  async analyzeLegalRequirements(tender: Tender): Promise<{
+  async analyzeLegalRequirements(tender: Tender, legalCfg?: Partial<LegalConfig>): Promise<{
     framework: LegalFramework;
-    requiredClauses: string[];
+    requiredClauses: LegalClause[];
     complianceChecklist: string[];
     recommendations: string[];
+    clauseVariables: Record<string, string>;
   }> {
+    const cfg: LegalConfig = { ...getConfig().legal, ...(legalCfg || {}) };
     const serviceType = this.detectServiceType(tender);
     const framework = this.getFramework(serviceType, tender.legalFramework);
 
-    const requiredClauses = this.getRequiredClauses(serviceType);
-    const complianceChecklist = this.generateComplianceChecklist(tender);
-    const recommendations = this.getLegalRecommendations(serviceType, tender);
+    const clauseVars: Record<string, string> = {
+      warranty_months: String(cfg.warrantyMonths),
+      penalty_rate: String(cfg.penaltyRatePercent),
+      notice_days: String(cfg.noticeDays),
+      payment_days: String(cfg.paymentDays),
+    };
+
+    const requiredClauseKeys = this.getRequiredClauses(serviceType);
+    const requiredClauses = await Promise.all(
+      requiredClauseKeys.map(key => this.getClauseTemplate(key, clauseVars))
+    ).then(clauses => clauses.filter(Boolean) as LegalClause[]);
+
+    const complianceChecklist = this.generateComplianceChecklist(tender, cfg);
+    const recommendations = this.getLegalRecommendations(serviceType, tender, cfg);
 
     return {
       framework,
       requiredClauses,
       complianceChecklist,
-      recommendations
+      recommendations,
+      clauseVariables: clauseVars
     };
   }
 
@@ -133,70 +148,70 @@ export class LegalService {
     return typeSpecificClauses[serviceType] || baseClauses;
   }
 
-  private generateComplianceChecklist(tender: Tender): string[] {
+  private generateComplianceChecklist(tender: Tender, cfg: LegalConfig): string[] {
     const checklist: string[] = [];
+    const offerPct = tender.guarantees?.offer?.percentage ?? cfg.guaranteeOfferPct;
+    const perfPct = tender.guarantees?.performance?.percentage ?? cfg.guaranteePerformancePct;
 
-    // General requirements
     checklist.push('Inscripción en el Registro Nacional de Constructores (si aplica)');
-    checklist.push('Certificación de situación fiscal (AFIP)');
-    checklist.push('Constancia de inscripción en IVA');
-    checklist.push('Balance último ejercicio');
-    checklist.push('Seguro de riesgo de trabajo vigente');
-
-    // Payment terms
-    if (tender.paymentTerms?.advance) {
-      checklist.push(`Garantía de anticipo: ${tender.paymentTerms.advance}%`);
+    checklist.push('Certificación de situación fiscal (AFIP) — Constancia vigente');
+    checklist.push('Constancia de inscripción en IVA / Monotributo');
+    checklist.push('Balance o estados contables último ejercicio firmado');
+    if (cfg.requireWorkAccidentInsurance) {
+      checklist.push('Seguro de riesgo de trabajo ART vigente');
     }
-    if (tender.guarantees?.offer) {
-      checklist.push(`Garantía de oferta: ${tender.guarantees.offer.percentage}%`);
+    checklist.push(`Garantía de oferta: ${offerPct}% del valor total de la oferta`);
+    checklist.push(`Garantía de cumplimiento: ${perfPct}% del valor del contrato`);
+    checklist.push('Antecedentes de obras/servicios similares (últimos 5 años)');
+    if (cfg.requireISO9001) {
+      checklist.push('Certificación ISO 9001 vigente (requerida)');
+    } else {
+      checklist.push('Certificación ISO 9001 (recomendada, no obligatoria)');
     }
-    if (tender.guarantees?.performance) {
-      checklist.push(`Garantía de cumplimiento: ${tender.guarantees.performance.percentage}%`);
+    checklist.push('Personal técnico con matrícula/habilitación vigente');
+    checklist.push('Equipamiento e instalaciones adecuadas');
+    checklist.push(`Seguro de responsabilidad civil vigente`);
+    if (cfg.customClauses.length > 0) {
+      cfg.customClauses.forEach(c => checklist.push(`(Propio) ${c}`));
     }
-
-    // Experience requirements
-    checklist.push('Antecedentes de obras/servicios similares');
-
-    // Technical requirements
-    checklist.push('Certificaciones técnicas vigentes (ISO 9001 si aplica)');
-    checklist.push('Personal técnico capacitado');
-    checklist.push('Equipamiento adecuado');
-
     return checklist;
   }
 
-  private getLegalRecommendations(serviceType: string, tender: Tender): string[] {
+  private getLegalRecommendations(serviceType: string, tender: Tender, cfg: LegalConfig): string[] {
     const recommendations: string[] = [];
-
-    // General recommendations
-    recommendations.push('Revisar cuidadosamente los plazos de presentación');
-    recommendations.push('Verificar que todos los documentos estén vigentes');
-    recommendations.push('Confirmar los montos de garantías requeridas');
-
-    // Type-specific recommendations
-    if (serviceType === 'obra_publica') {
-      recommendations.push('Revisar el régimen de redeterminación de precios');
-      recommendations.push('Verificar los plazos de obra y penalizaciones');
-      recommendations.push('Confirmar los requisitos de subcontratistas');
-    }
-
-    if (serviceType === 'servicio') {
-      recommendations.push('Revisar el régimen de personal mínimo');
-      recommendations.push('Verificar los requisitos de supervisión');
-      recommendations.push('Confirmar los controles de calidad exigidos');
-    }
-
-    // Payment recommendations
-    if (tender.paymentTerms?.advance && tender.paymentTerms.advance > 20) {
-      recommendations.push('El anticipo supera el 20%, verificar garantías');
-    }
-
-    // Deadline recommendations
     const daysUntilClose = Math.ceil(
       (new Date(tender.closingDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
     );
-    if (daysUntilClose < 14) {
-      recommendations.push('PLAZO CORTO: Priorizar la preparación de la oferta');
+
+    if (daysUntilClose < 0) {
+      recommendations.push('⛔ LICITACIÓN VENCIDA — esta oferta es solo de referencia');
+    } else if (daysUntilClose < 7) {
+      recommendations.push(`⚠️ PLAZO URGENTE: quedan ${daysUntilClose} días — priorizar preparación`);
+    } else if (daysUntilClose < 14) {
+      recommendations.push(`Plazo ajustado: ${daysUntilClose} días para cierre — organizar equipo`);
+    }
+
+    recommendations.push(`Garantía de oferta (${cfg.guaranteeOfferPct}%): preparar póliza o aval bancario`);
+    recommendations.push(`Plazo de pago configurado: ${cfg.paymentDays} días desde factura`);
+    recommendations.push(`Penalidad por atraso: ${cfg.penaltyRatePercent}% por día — revisar plan de obra`);
+    recommendations.push(`Garantía del producto/servicio: ${cfg.warrantyMonths} meses post-entrega`);
+
+    if (serviceType === 'obra_publica') {
+      recommendations.push('Verificar régimen de redeterminación de precios (Decreto 691/2016)');
+      recommendations.push('Confirmar habilitación en Registro de Constructores (RNOC)');
+      recommendations.push(`Subcontratistas: notificar al comitente — preaviso ${cfg.noticeDays} días`);
+    }
+    if (serviceType === 'servicio') {
+      recommendations.push('Adjuntar planilla de personal afectado al servicio');
+      recommendations.push('Verificar convenio colectivo aplicable');
+    }
+    if (serviceType === 'suministro') {
+      recommendations.push('Verificar normas IRAM / especificaciones técnicas del pliego');
+      recommendations.push('Prever plazo de entrega vs. stock disponible');
+    }
+
+    if (tender.paymentTerms?.advance && tender.paymentTerms.advance > 20) {
+      recommendations.push('El anticipo supera el 20% — verificar contragarantía requerida');
     }
 
     return recommendations;

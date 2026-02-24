@@ -1,4 +1,5 @@
-import { Tender, CompetitiveAnalysis, HistoricalBid, Competitor, Benchmark, CompetitiveScore } from '../types/index.js';
+import { Tender, CompetitiveAnalysis, HistoricalBid, Competitor, Benchmark, CompetitiveScore, CompetitiveConfig } from '../types/index.js';
+import { getConfig } from '../config/index.js';
 
 export class CompetitiveService {
   private historicalBids: HistoricalBid[] = [];
@@ -52,7 +53,23 @@ export class CompetitiveService {
     ];
   }
 
-  async analyze(tender: Tender): Promise<CompetitiveAnalysis> {
+  async analyze(tender: Tender, competitiveCfg?: Partial<CompetitiveConfig>): Promise<CompetitiveAnalysis> {
+    const cfg: CompetitiveConfig = { ...getConfig().competitive, ...(competitiveCfg || {}) };
+
+    // Merge custom competitors from config into the sample set
+    const configCompetitors: Competitor[] = (cfg.customCompetitors || []).map(c => ({
+      name: c.name, winRate: c.winRate, averageBid: c.averageBid, zone: c.zone
+    }));
+
+    // Merge custom historical bids from config
+    const configHistorical: HistoricalBid[] = (cfg.historicalBids || []).map(b => ({
+      tenderId: b.tenderId, category: b.category, amount: b.amount,
+      winner: b.won, year: b.year
+    }));
+
+    if (configCompetitors.length > 0) this.competitors = [...configCompetitors, ...this.competitors.slice(0, 4)];
+    if (configHistorical.length > 0) this.historicalBids = [...configHistorical, ...this.historicalBids];
+
     const historicalData = this.getHistoricalBids(tender.category);
     const competitors = this.getCompetitors(tender.region);
     const benchmark = this.calculateBenchmark(tender, historicalData);
@@ -156,35 +173,42 @@ export class CompetitiveService {
   async getPriceRecommendation(
     tender: Tender,
     benchmark: Benchmark,
-    margin: number = 15
+    margin?: number
   ): Promise<{
     minimum: number;
     recommended: number;
     maximum: number;
     strategy: string;
+    marginUsed: number;
   }> {
+    const effectiveMargin = margin ?? getConfig().competitive.targetMarginPct ?? 15;
     const minPrice = benchmark.lowestWinningPrice;
     const avgPrice = benchmark.averageMarketPrice;
     const maxPrice = benchmark.highestWinningPrice;
 
     // Calculate prices with margin
-    const minimum = Math.round(minPrice * (1 - margin / 100));
-    const recommended = Math.round(avgPrice * (1 - (margin - 5) / 100));
-    const maximum = Math.round(maxPrice * (1 - (margin - 10) / 100));
+    const minimum = Math.round(minPrice * (1 - effectiveMargin / 100));
+    const recommended = Math.round(avgPrice * (1 - Math.max(effectiveMargin - 5, 0) / 100));
+    const maximum = Math.round(maxPrice * (1 - Math.max(effectiveMargin - 10, 0) / 100));
 
     // Determine strategy
     let strategy = 'COMPETITIVO';
-    if (recommended < tender.budget * 0.85) {
-      strategy = 'AGRESIVO - Puede bajar precio';
-    } else if (recommended > tender.budget * 0.95) {
-      strategy = 'CONSERVADOR - Considere aumentar precio';
+    if (recommended < tender.budget * 0.80) {
+      strategy = 'AGRESIVO — precio muy por debajo del presupuesto';
+    } else if (recommended < tender.budget * 0.90) {
+      strategy = 'COMPETITIVO — buen margen respecto al presupuesto';
+    } else if (recommended <= tender.budget) {
+      strategy = 'CONSERVADOR — precio cerca del presupuesto oficial';
+    } else {
+      strategy = '⚠️ EXCEDE PRESUPUESTO — revisar costos';
     }
 
     return {
       minimum,
       recommended,
       maximum,
-      strategy
+      strategy,
+      marginUsed: effectiveMargin
     };
   }
 

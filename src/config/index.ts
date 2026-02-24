@@ -1,4 +1,4 @@
-import { Config, Company } from '../types/index.js';
+import { Config, Company, LegalConfig, CompetitiveConfig } from '../types/index.js';
 import { writeFileSync, readFileSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -34,6 +34,23 @@ export const defaultConfig: Config = {
     profitMargin: 15,
     outputDirectory: './bids'
   },
+  legal: {
+    warrantyMonths: 12,
+    penaltyRatePercent: 0.5,
+    noticeDays: 30,
+    paymentDays: 30,
+    guaranteeOfferPct: 1,
+    guaranteePerformancePct: 10,
+    requireISO9001: false,
+    requireWorkAccidentInsurance: true,
+    customClauses: []
+  },
+  competitive: {
+    targetMarginPct: 15,
+    maxDiscountPct: 10,
+    customCompetitors: [],
+    historicalBids: []
+  },
   templates: {
     technical: './templates/technical',
     commercial: './templates/commercial',
@@ -59,7 +76,15 @@ export function loadConfig(): Config {
   if (existsSync(CONFIG_PATH)) {
     try {
       const data = readFileSync(CONFIG_PATH, 'utf-8');
-      config = { ...defaultConfig, ...JSON.parse(data) };
+      const saved = JSON.parse(data);
+      config = {
+        ...defaultConfig,
+        ...saved,
+        company: { ...defaultConfig.company, ...(saved.company || {}) },
+        defaults: { ...defaultConfig.defaults, ...(saved.defaults || {}) },
+        legal: { ...defaultConfig.legal, ...(saved.legal || {}) },
+        competitive: { ...defaultConfig.competitive, ...(saved.competitive || {}) },
+      };
     } catch (error) {
       console.warn('Failed to load config, using defaults');
     }

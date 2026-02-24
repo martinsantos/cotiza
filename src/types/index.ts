@@ -329,6 +329,38 @@ export interface CompetitiveScore {
   experienceScore: number;
 }
 
+export interface LegalConfig {
+  warrantyMonths: number;        // meses garantía del producto/servicio
+  penaltyRatePercent: number;    // % multa por día de atraso
+  noticeDays: number;            // días preaviso rescisión
+  paymentDays: number;           // días pago desde factura
+  guaranteeOfferPct: number;     // % garantía de oferta
+  guaranteePerformancePct: number; // % garantía de cumplimiento
+  requireISO9001: boolean;
+  requireWorkAccidentInsurance: boolean;
+  customClauses: string[];       // cláusulas adicionales propias
+}
+
+export interface CompetitiveConfig {
+  targetMarginPct: number;       // margen de ganancia objetivo
+  maxDiscountPct: number;        // descuento máximo ofrecible
+  customCompetitors: Array<{
+    name: string;
+    cuit?: string;
+    winRate: number;             // 0–1
+    averageBid: number;
+    zone: string;
+  }>;
+  historicalBids: Array<{
+    tenderId: string;
+    tenderTitle: string;
+    category: string;
+    amount: number;
+    won: boolean;
+    year: number;
+  }>;
+}
+
 export interface Config {
   company: Company;
   defaults: {
@@ -337,6 +369,8 @@ export interface Config {
     profitMargin: number;
     outputDirectory: string;
   };
+  legal: LegalConfig;
+  competitive: CompetitiveConfig;
   templates: {
     technical: string;
     commercial: string;
