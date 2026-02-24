@@ -26,6 +26,8 @@ BLOCK = (
     "\n        proxy_set_header X-Forwarded-Proto $scheme;"
     "\n        proxy_read_timeout 120s;"
     "\n        proxy_connect_timeout 5s;"
+    "\n        proxy_no_cache 1;"
+    "\n        proxy_cache_bypass 1;"
     "\n    }"
 )
 

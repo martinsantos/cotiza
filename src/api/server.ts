@@ -35,20 +35,31 @@ router.get('/health', (_req: Request, res: Response) => {
 
 // Read index.html once and inject BASE_PATH so the frontend knows where the API lives
 import { readFileSync } from 'fs';
+const BUILD_TIME = new Date().toISOString();
 let indexHtml: string | null = null;
 function getIndexHtml(): string {
   if (!indexHtml) {
     indexHtml = readFileSync(path.join(publicPath, 'index.html'), 'utf-8');
   }
-  const injected = indexHtml.replace(
-    '<!-- __BASE_PATH__ -->',
-    `<script>window.__BASE_PATH__ = ${JSON.stringify(BASE_PATH)};</script>`
-  );
+  const injected = indexHtml
+    .replace(
+      '<!-- __BASE_PATH__ -->',
+      `<script>window.__BASE_PATH__ = ${JSON.stringify(BASE_PATH)}; window.__BUILD_TIME__ = ${JSON.stringify(BUILD_TIME)};</script>`
+    );
   return injected;
 }
 
-router.get('/', (_req: Request, res: Response) => {
+function sendHtml(res: Response): void {
+  res.set({
+    'Cache-Control': 'no-cache, no-store, must-revalidate',
+    'Pragma': 'no-cache',
+    'Expires': '0',
+  });
   res.type('html').send(getIndexHtml());
+}
+
+router.get('/', (_req: Request, res: Response) => {
+  sendHtml(res);
 });
 
 // Serve static files
@@ -646,7 +657,7 @@ router.post('/api/config', (req: Request, res: Response) => {
 
 // SPA fallback: serve index.html for unknown routes
 router.get('*', (_req: Request, res: Response) => {
-  res.type('html').send(getIndexHtml());
+  sendHtml(res);
 });
 
 // Mount router at BASE_PATH when set (handles proxy that preserves the prefix)

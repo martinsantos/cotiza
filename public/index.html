@@ -318,7 +318,8 @@
                     <button class="hamburger" id="hamburger-btn" aria-label="Menu">&#9776;</button>
                     <h2 id="page-title">Dashboard</h2>
                 </div>
-                <div class="topbar-actions">
+                <div class="topbar-actions" style="display:flex;align-items:center;gap:8px;">
+                    <span id="build-ver" style="font-size:10px;color:#9ca3af;display:none;"></span>
                     <button class="btn btn-outline btn-sm" onclick="syncFromLicitometro()">Sync LICITOMETRO</button>
                     <button class="btn btn-primary btn-sm" onclick="openNewBidModal()">+ Nueva Cotizacion</button>
                 </div>
@@ -2815,6 +2816,15 @@
         });
 
         // === INIT ===
+        // Show build timestamp so we can confirm which version is deployed
+        if (window.__BUILD_TIME__) {
+            const el = document.getElementById('build-ver');
+            if (el) {
+                const d = new Date(window.__BUILD_TIME__);
+                el.textContent = `v${d.toISOString().slice(0,16).replace('T',' ')}`;
+                el.style.display = 'inline';
+            }
+        }
         loadFavoriteIds().catch(() => {});
         if (contextTenderId) {
             const s0 = window.location.hash.replace('#', '') || 'dashboard';
