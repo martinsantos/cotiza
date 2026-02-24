@@ -1,23 +1,13 @@
 import { MarketData, CurrencyData, InflationData } from '../types/index.js';
-import https from 'https';
+import axios from 'axios';
 
 // APIs públicas argentinas — sin auth, sin costo
 const DOLAR_API_URL = 'https://dolarapi.com/v1/dolares';
-const INDEC_IPC_URL = 'https://apis.datos.gob.ar/series/api/series/?ids=148.3_INIVELNAL_DICI_M_26:percent_change&limit=1&sort=desc';
+const INDEC_IPC_URL = 'https://apis.datos.gob.ar/series/api/series/?ids=148.3_INIVELNAL_DICI_M_26:percent_change&limit=13&sort=desc';
 
-function fetchJson(url: string, timeoutMs = 8000): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    const req = https.get(url, { timeout: timeoutMs }, (res) => {
-      let data = '';
-      res.on('data', (chunk) => { data += chunk; });
-      res.on('end', () => {
-        try { resolve(JSON.parse(data)); }
-        catch { reject(new Error('JSON parse error')); }
-      });
-    });
-    req.on('error', reject);
-    req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
-  });
+async function fetchJson(url: string, timeoutMs = 8000): Promise<unknown> {
+  const res = await axios.get(url, { timeout: timeoutMs });
+  return res.data;
 }
 
 export class MarketService {
