@@ -529,6 +529,14 @@ export function startServer(port?: number): void {
     if (BASE_PATH) {
       console.log(`BASE_PATH: ${BASE_PATH}`);
     }
+
+    // Auto-sync en segundo plano al arrancar (no bloquea el servidor)
+    setTimeout(() => {
+      console.log('[startup] Iniciando sync de licitaciones desde LICITOMETRO.AR...');
+      licitometroService.sync({ estado: 'abierta', limit: 100 })
+        .then(result => console.log(`[startup] Sync licitaciones: ${result.message}`))
+        .catch(err => console.warn('[startup] Sync licitaciones falló:', err?.message));
+    }, 3000); // esperar 3s para que el servidor esté completamente listo
   });
 }
 
