@@ -1,295 +1,186 @@
-import { Tender, TenderRequirement, TenderDocument, TenderTerms, LegalFramework, PaymentTerms, Guarantees } from '../types/index.js';
+import { Tender } from '../types/index.js';
 import { v4 as uuidv4 } from 'uuid';
+import fs from 'fs/promises';
+import path from 'path';
+
+const TENDERS_DIR = process.env.TENDERS_DIR || '/app/bids/tenders';
 
 export class TenderService {
   private tenders: Map<string, Tender> = new Map();
+  private initialized = false;
 
   constructor() {
-    // Initialize with sample data
-    this.initializeSampleData();
+    // Carga lazy — primer uso dispara loadFromDisk()
   }
 
-  private initializeSampleData() {
-    const sampleTenders: Tender[] = [
+  // ── Persistencia en disco ────────────────────────────────────────────────
+
+  private async ensureDir(): Promise<void> {
+    await fs.mkdir(TENDERS_DIR, { recursive: true });
+  }
+
+  private async saveToDisk(tender: Tender): Promise<void> {
+    await this.ensureDir();
+    await fs.writeFile(
+      path.join(TENDERS_DIR, `${tender.id}.json`),
+      JSON.stringify(tender, null, 2),
+      'utf-8'
+    );
+  }
+
+  async loadFromDisk(): Promise<void> {
+    if (this.initialized) return;
+    this.initialized = true;
+    try {
+      await this.ensureDir();
+      const files = await fs.readdir(TENDERS_DIR);
+      let loaded = 0;
+      for (const file of files) {
+        if (!file.endsWith('.json')) continue;
+        try {
+          const raw = await fs.readFile(path.join(TENDERS_DIR, file), 'utf-8');
+          const tender = JSON.parse(raw) as Tender;
+          this.tenders.set(tender.id, tender);
+          loaded++;
+        } catch { /* skip corrupt */ }
+      }
+      if (loaded > 0) {
+        console.log(`[TenderService] ${loaded} licitaciones cargadas desde disco`);
+      }
+    } catch { /* ignore if dir unreadable */ }
+
+    // Cargar muestras SOLO si no hay tenders en disco todavía
+    if (this.tenders.size === 0) {
+      this.loadSampleData();
+    }
+  }
+
+  private loadSampleData(): void {
+    const now = new Date();
+    const in15d = new Date(now.getTime() + 15 * 86400000).toISOString();
+    const in30d = new Date(now.getTime() + 30 * 86400000).toISOString();
+    const in45d = new Date(now.getTime() + 45 * 86400000).toISOString();
+    const in60d = new Date(now.getTime() + 60 * 86400000).toISOString();
+
+    const samples: Tender[] = [
       {
-        id: 'lic-001',
-        number: 'CD-2024-001',
-        title: 'Servicio de Limpieza Integral para Edificios Públicos',
-        description: 'Contratación de servicio de limpieza integral para 10 edificios públicos de la Ciudad de Buenos Aires',
-        agency: 'Ministerio de Hábitat y Desarrollo Urbano',
-        region: 'CABA',
+        id: 'sample-001',
+        number: 'EJ-001',
+        title: 'Ejemplo: Servicio de Limpieza Edificios Públicos',
+        description: 'Datos de ejemplo con fechas actuales. Use "Sync LICITOMETRO" para cargar licitaciones reales de licitometro.ar.',
+        agency: 'Organismo Ejemplo — Mendoza',
+        region: 'Mendoza',
         category: 'Servicios',
         status: 'abierta',
-        openingDate: '2024-01-15T10:00:00Z',
-        closingDate: '2024-02-28T23:59:59Z',
-        budget: 50000000,
+        openingDate: now.toISOString(),
+        closingDate: in30d,
+        budget: 5000000,
         currency: 'ARS',
         requirements: [
-          {
-            id: 'req-001',
-            type: 'technical',
-            description: 'Experiencia mínima de 5 años en servicios similares',
-            mandatory: true,
-            weight: 20
-          },
-          {
-            id: 'req-002',
-            type: 'technical',
-            description: 'Certificación ISO 9001 vigente',
-            mandatory: true,
-            weight: 15
-          },
-          {
-            id: 'req-003',
-            type: 'commercial',
-            description: 'Precio ofertado dentro del presupuesto',
-            mandatory: true,
-            weight: 40
-          },
-          {
-            id: 'req-004',
-            type: 'legal',
-            description: 'Inscripción en el Registro Nacional de Constructores',
-            mandatory: true,
-            weight: 10
-          },
-          {
-            id: 'req-005',
-            type: 'administrative',
-            description: 'Documentación completa según pliego',
-            mandatory: true,
-            weight: 15
-          }
-        ],
-        documents: [
-          {
-            id: 'doc-001',
-            name: 'Pliego de Bases y Condiciones',
-            type: 'pdf',
-            url: 'https://example.com/pliego.pdf'
-          },
-          {
-            id: 'doc-002',
-            name: 'Especificaciones Técnicas',
-            type: 'pdf',
-            url: 'https://example.com/especificaciones.pdf'
-          }
-        ],
-        terms: {
-          deliveryTime: '12 meses',
-          placeOfDelivery: 'Edificios públicos CABA',
-          warranty: '6 meses',
-          validityOfOffer: 90
-        },
-        legalFramework: {
-          law: 'Ley Nacional de Compras y Contrataciones',
-          decree: 'Decreto 1023/2001',
-          regulation: 'Régimen de Contrataciones de la Administración Pública Nacional'
-        },
-        paymentTerms: {
-          type: 'mensual',
-          advance: 20,
-          milestones: [
-            { milestone: 'Mes 1', percentage: 10 },
-            { milestone: 'Mes 6', percentage: 40 },
-            { milestone: 'Mes 12', percentage: 50 }
-          ]
-        },
-        guarantees: {
-          offer: { percentage: 5, amount: 2500000 },
-          performance: { percentage: 10, amount: 5000000 },
-          technical: { percentage: 5, amount: 2500000 }
-        }
-      },
-      {
-        id: 'lic-002',
-        number: 'OB-2024-015',
-        title: 'Obra de Refacción Integral Hospital Regional',
-        description: 'Refacción completa del Hospital Regional de La Plata incluyendo obra civil, electricidad, plumbing y climatización',
-        agency: 'Ministerio de Salud',
-        region: 'Buenos Aires',
-        category: 'Obras',
-        status: 'abierta',
-        openingDate: '2024-02-01T10:00:00Z',
-        closingDate: '2024-03-15T23:59:59Z',
-        budget: 250000000,
-        currency: 'ARS',
-        requirements: [
-          {
-            id: 'req-006',
-            type: 'technical',
-            description: 'Certificación categoria A en registro de constructores',
-            mandatory: true,
-            weight: 25
-          },
-          {
-            id: 'req-007',
-            type: 'technical',
-            description: 'Antecedentes de obras de similar magnitud',
-            mandatory: true,
-            weight: 20
-          },
-          {
-            id: 'req-008',
-            type: 'commercial',
-            description: 'Oferta económica dentro del presupuesto oficial',
-            mandatory: true,
-            weight: 35
-          },
-          {
-            id: 'req-009',
-            type: 'legal',
-            description: 'Seguro de riesgo de trabajo vigente',
-            mandatory: true,
-            weight: 10
-          },
-          {
-            id: 'req-010',
-            type: 'administrative',
-            description: 'Garantía de oferta según pliego',
-            mandatory: true,
-            weight: 10
-          }
-        ],
-        documents: [
-          {
-            id: 'doc-003',
-            name: 'Pliego Técnico',
-            type: 'pdf',
-            url: 'https://example.com/pliego-tecnico.pdf'
-          }
-        ],
-        terms: {
-          deliveryTime: '18 meses',
-          placeOfDelivery: 'Hospital Regional La Plata',
-          warranty: '12 meses',
-          validityOfOffer: 90
-        },
-        legalFramework: {
-          law: 'Ley de Obras Públicas',
-          decree: 'Decreto 691/2016',
-          regulation: 'Régimen de Contrataciones de Obras Públicas'
-        },
-        paymentTerms: {
-          type: 'avance',
-          advance: 15,
-          milestones: [
-            { milestone: '25% avance', percentage: 25 },
-            { milestone: '50% avance', percentage: 25 },
-            { milestone: '75% avance', percentage: 25 },
-            { milestone: 'Entrega definitiva', percentage: 25 }
-          ]
-        },
-        guarantees: {
-          offer: { percentage: 2, amount: 5000000 },
-          performance: { percentage: 5, amount: 12500000 },
-          technical: { percentage: 5, amount: 12500000 }
-        }
-      },
-      {
-        id: 'lic-003',
-        number: 'SUM-2024-008',
-        title: 'Suministro de Equipamiento Informático',
-        description: 'Adquisición de 500 computadoras de escritorio, 100 notebooks y 50 servidores para dependencias públicas',
-        agency: 'Ministerio de Modernización',
-        region: 'CABA',
-        category: 'Suministros',
-        status: 'abierta',
-        openingDate: '2024-02-10T10:00:00Z',
-        closingDate: '2024-03-10T23:59:59Z',
-        budget: 180000000,
-        currency: 'ARS',
-        requirements: [
-          {
-            id: 'req-011',
-            type: 'technical',
-            description: 'Equipos con certificación IRAM o equivalente',
-            mandatory: true,
-            weight: 20
-          },
-          {
-            id: 'req-012',
-            type: 'technical',
-            description: 'Soporte técnico local 24/7',
-            mandatory: true,
-            weight: 15
-          },
-          {
-            id: 'req-013',
-            type: 'commercial',
-            description: 'Precio por debajo del presupuesto',
-            mandatory: true,
-            weight: 45
-          },
-          {
-            id: 'req-014',
-            type: 'legal',
-            description: 'Habilitación comercial vigente',
-            mandatory: true,
-            weight: 10
-          },
-          {
-            id: 'req-015',
-            type: 'administrative',
-            description: 'Garantía mínima de 3 años',
-            mandatory: true,
-            weight: 10
-          }
+          { id: 'r1', type: 'technical', description: 'Experiencia mínima 2 años en servicios similares', mandatory: true, weight: 30 },
+          { id: 'r2', type: 'legal', description: 'Inscripción AFIP vigente', mandatory: true, weight: 20 }
         ],
         documents: [],
-        terms: {
-          deliveryTime: '60 días',
-          placeOfDelivery: 'Dependencias del Ministerio',
-          warranty: '36 meses',
-          validityOfOffer: 60
-        },
-        legalFramework: {
-          law: 'Ley de Compras Electrónicas',
-          decree: 'Decreto 1149/2007',
-          regulation: 'Sistema Electrónico de Contrataciones'
-        },
-        paymentTerms: {
-          type: 'entrega',
-          advance: 0,
-          milestones: [
-            { milestone: 'Entrega 50%', percentage: 50 },
-            { milestone: 'Entrega 100% + OK', percentage: 50 }
-          ]
-        },
-        guarantees: {
-          offer: { percentage: 2, amount: 3600000 },
-          performance: { percentage: 10, amount: 18000000 },
-          technical: { amount: 0, percentage: 0 }
-        }
+        terms: { deliveryTime: '12 meses', placeOfDelivery: 'Mendoza Capital', validityOfOffer: 60 }
+      },
+      {
+        id: 'sample-002',
+        number: 'EJ-002',
+        title: 'Ejemplo: Suministro de Equipamiento Informático',
+        description: 'Datos de ejemplo con fechas actuales. Use "Sync LICITOMETRO" para cargar licitaciones reales de licitometro.ar.',
+        agency: 'Ministerio Ejemplo',
+        region: 'Mendoza',
+        category: 'Suministros',
+        status: 'abierta',
+        openingDate: now.toISOString(),
+        closingDate: in45d,
+        budget: 15000000,
+        currency: 'ARS',
+        requirements: [
+          { id: 'r3', type: 'technical', description: 'Equipos certificados IRAM', mandatory: true, weight: 25 },
+          { id: 'r4', type: 'commercial', description: 'Precio dentro del presupuesto', mandatory: true, weight: 40 }
+        ],
+        documents: [],
+        terms: { deliveryTime: '60 días', placeOfDelivery: 'Ministerio', validityOfOffer: 60 }
+      },
+      {
+        id: 'sample-003',
+        number: 'EJ-003',
+        title: 'Ejemplo: Obra de Infraestructura Vial',
+        description: 'Datos de ejemplo con fechas actuales. Use "Sync LICITOMETRO" para cargar licitaciones reales de licitometro.ar.',
+        agency: 'Dirección Provincial de Vialidad',
+        region: 'Mendoza',
+        category: 'Obras',
+        status: 'abierta',
+        openingDate: now.toISOString(),
+        closingDate: in60d,
+        budget: 80000000,
+        currency: 'ARS',
+        requirements: [
+          { id: 'r5', type: 'technical', description: 'Certificado categoría A constructores', mandatory: true, weight: 30 },
+          { id: 'r6', type: 'legal', description: 'Seguro de riesgo de trabajo vigente', mandatory: true, weight: 15 }
+        ],
+        documents: [],
+        terms: { deliveryTime: '18 meses', placeOfDelivery: 'Provincia de Mendoza', validityOfOffer: 90 }
+      },
+      {
+        id: 'sample-004',
+        number: 'EJ-004',
+        title: 'Ejemplo: Consultoría en Gestión Ambiental',
+        description: 'Datos de ejemplo con fechas actuales. Use "Sync LICITOMETRO" para cargar licitaciones reales de licitometro.ar.',
+        agency: 'Secretaría de Ambiente Ejemplo',
+        region: 'Buenos Aires',
+        category: 'Consultoria',
+        status: 'abierta',
+        openingDate: now.toISOString(),
+        closingDate: in15d,
+        budget: 8500000,
+        currency: 'ARS',
+        requirements: [
+          { id: 'r7', type: 'technical', description: 'Matriculación profesional vigente', mandatory: true, weight: 35 },
+          { id: 'r8', type: 'legal', description: 'Seguro de responsabilidad civil', mandatory: true, weight: 20 }
+        ],
+        documents: [],
+        terms: { deliveryTime: '6 meses', placeOfDelivery: 'Buenos Aires', validityOfOffer: 45 }
       }
     ];
 
-    sampleTenders.forEach(tender => {
-      this.tenders.set(tender.id, tender);
-    });
+    samples.forEach(t => this.tenders.set(t.id, t));
+    console.log('[TenderService] Datos de muestra cargados (sin datos reales en disco)');
   }
 
+  // ── API pública ──────────────────────────────────────────────────────────
+
   async search(query: string): Promise<Tender[]> {
-    const results: Tender[] = [];
-    const lowerQuery = query.toLowerCase();
-
-    this.tenders.forEach(tender => {
-      if (
-        tender.title.toLowerCase().includes(lowerQuery) ||
-        tender.description.toLowerCase().includes(lowerQuery) ||
-        tender.agency.toLowerCase().includes(lowerQuery) ||
-        tender.category.toLowerCase().includes(lowerQuery) ||
-        tender.region.toLowerCase().includes(lowerQuery)
-      ) {
-        results.push(tender);
-      }
-    });
-
-    return results;
+    await this.loadFromDisk();
+    const q = query.toLowerCase();
+    return Array.from(this.tenders.values()).filter(t =>
+      t.title.toLowerCase().includes(q) ||
+      t.description.toLowerCase().includes(q) ||
+      t.agency.toLowerCase().includes(q) ||
+      t.category.toLowerCase().includes(q) ||
+      t.region.toLowerCase().includes(q) ||
+      t.number.toLowerCase().includes(q)
+    );
   }
 
   async getById(id: string): Promise<Tender | null> {
+    await this.loadFromDisk();
     return this.tenders.get(id) || null;
+  }
+
+  // ── Auto-expirar licitaciones cuya fecha de cierre ya pasó ──────────────
+  private autoExpire(): void {
+    const now = new Date();
+    for (const [id, tender] of this.tenders.entries()) {
+      if (tender.status === 'abierta' && new Date(tender.closingDate) < now) {
+        const updated = { ...tender, status: 'cerrada' as const };
+        this.tenders.set(id, updated);
+        if (!id.startsWith('sample-')) {
+          this.saveToDisk(updated).catch(() => {});
+        }
+      }
+    }
   }
 
   async list(filters?: {
@@ -298,35 +189,36 @@ export class TenderService {
     region?: string;
     agency?: string;
   }): Promise<Tender[]> {
+    await this.loadFromDisk();
+    this.autoExpire();
     let results = Array.from(this.tenders.values());
 
     if (filters) {
-      if (filters.status) {
-        results = results.filter(t => t.status === filters.status);
-      }
-      if (filters.category) {
-        results = results.filter(t => t.category.toLowerCase() === filters.category!.toLowerCase());
-      }
-      if (filters.region) {
-        results = results.filter(t => t.region.toLowerCase() === filters.region!.toLowerCase());
-      }
-      if (filters.agency) {
-        results = results.filter(t => t.agency.toLowerCase().includes(filters.agency!.toLowerCase()));
-      }
+      if (filters.status) results = results.filter(t => t.status === filters.status);
+      if (filters.category) results = results.filter(t => t.category.toLowerCase() === filters.category!.toLowerCase());
+      if (filters.region) results = results.filter(t => t.region.toLowerCase() === filters.region!.toLowerCase());
+      if (filters.agency) results = results.filter(t => t.agency.toLowerCase().includes(filters.agency!.toLowerCase()));
     }
 
+    // Más próximas a vencer primero (abiertas al frente, luego por fecha)
+    results.sort((a, b) => {
+      if (a.status === 'abierta' && b.status !== 'abierta') return -1;
+      if (a.status !== 'abierta' && b.status === 'abierta') return 1;
+      return new Date(a.closingDate).getTime() - new Date(b.closingDate).getTime();
+    });
     return results;
   }
 
   async create(tenderData: Partial<Tender>): Promise<Tender> {
+    await this.loadFromDisk();
     const tender: Tender = {
-      id: `lic-${uuidv4().slice(0, 8)}`,
+      id: tenderData.id || `lic-${uuidv4().slice(0, 8)}`,
       number: tenderData.number || '',
       title: tenderData.title || '',
       description: tenderData.description || '',
       agency: tenderData.agency || '',
       region: tenderData.region || '',
-      category: tenderData.category || 'Servicios',
+      category: tenderData.category || 'General',
       status: tenderData.status || 'abierta',
       openingDate: tenderData.openingDate || new Date().toISOString(),
       closingDate: tenderData.closingDate || new Date().toISOString(),
@@ -334,46 +226,63 @@ export class TenderService {
       currency: tenderData.currency || 'ARS',
       requirements: tenderData.requirements || [],
       documents: tenderData.documents || [],
-      terms: tenderData.terms || {
-        deliveryTime: '',
-        placeOfDelivery: '',
-        validityOfOffer: 60
-      }
+      terms: tenderData.terms || { deliveryTime: '', placeOfDelivery: '', validityOfOffer: 60 }
     };
 
     this.tenders.set(tender.id, tender);
+    if (!tender.id.startsWith('sample-')) {
+      await this.saveToDisk(tender).catch(() => {});
+    }
     return tender;
   }
 
   async update(id: string, data: Partial<Tender>): Promise<Tender | null> {
+    await this.loadFromDisk();
     const existing = this.tenders.get(id);
     if (!existing) return null;
-
     const updated = { ...existing, ...data };
     this.tenders.set(id, updated);
+    if (!id.startsWith('sample-')) {
+      await this.saveToDisk(updated).catch(() => {});
+    }
     return updated;
   }
 
   async delete(id: string): Promise<boolean> {
-    return this.tenders.delete(id);
+    await this.loadFromDisk();
+    const existed = this.tenders.delete(id);
+    if (existed && !id.startsWith('sample-')) {
+      fs.unlink(path.join(TENDERS_DIR, `${id}.json`)).catch(() => {});
+    }
+    return existed;
   }
 
   async getCategories(): Promise<string[]> {
-    const categories = new Set<string>();
-    this.tenders.forEach(t => categories.add(t.category));
-    return Array.from(categories);
+    await this.loadFromDisk();
+    const cats = new Set<string>();
+    this.tenders.forEach(t => cats.add(t.category));
+    return Array.from(cats).sort();
   }
 
   async getRegions(): Promise<string[]> {
+    await this.loadFromDisk();
     const regions = new Set<string>();
     this.tenders.forEach(t => regions.add(t.region));
-    return Array.from(regions);
+    return Array.from(regions).sort();
   }
 
   async getAgencies(): Promise<string[]> {
+    await this.loadFromDisk();
     const agencies = new Set<string>();
     this.tenders.forEach(t => agencies.add(t.agency));
-    return Array.from(agencies);
+    return Array.from(agencies).sort();
+  }
+
+  async count(): Promise<{ total: number; sample: number; real: number }> {
+    await this.loadFromDisk();
+    const ids = Array.from(this.tenders.keys());
+    const sample = ids.filter(id => id.startsWith('sample-')).length;
+    return { total: ids.length, sample, real: ids.length - sample };
   }
 }
 

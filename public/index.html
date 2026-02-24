@@ -283,6 +283,7 @@
             <div class="content">
                 <!-- ====== DASHBOARD ====== -->
                 <div id="dashboard" class="section active">
+                    <div id="dashboard-sync-banner"></div>
                     <div class="stats-grid" id="dashboard-stats">
                         <div class="stat-card"><div class="stat-value" id="stat-tenders">-</div><div class="stat-label">Licitaciones Activas</div></div>
                         <div class="stat-card"><div class="stat-value" id="stat-bids">-</div><div class="stat-label">Cotizaciones</div></div>
@@ -293,14 +294,14 @@
                     <div class="grid-2">
                         <div class="card">
                             <div class="card-header">
-                                <span class="card-title">Licitaciones Recientes</span>
+                                <span class="card-title">Licitaciones Abiertas</span>
                                 <button class="btn btn-sm btn-outline" onclick="showSection('tenders')">Ver todas</button>
                             </div>
                             <div id="recent-tenders"><div class="loading"><div class="spinner"></div>Cargando...</div></div>
                         </div>
                         <div class="card">
                             <div class="card-header">
-                                <span class="card-title">Alertas</span>
+                                <span class="card-title">Alertas de Vencimiento</span>
                             </div>
                             <div id="dashboard-alerts"><div class="loading"><div class="spinner"></div>Cargando...</div></div>
                         </div>
@@ -831,17 +832,19 @@
         // === DASHBOARD ===
         async function loadDashboard() {
             try {
-                const [tenders, bids] = await Promise.all([
+                const [tenders, bids, countData, licitStatus] = await Promise.all([
                     apiFetch('/tenders'),
-                    apiFetch('/bids')
+                    apiFetch('/bids'),
+                    apiFetch('/tenders/meta/count').catch(() => null),
+                    apiFetch('/licitometro/status').catch(() => null)
                 ]);
                 tendersCache = tenders;
                 bidsCache = bids;
 
+                const now = new Date();
                 const openTenders = tenders.filter(t => t.status === 'abierta');
                 const drafts = bids.filter(b => b.status === 'draft');
-                const now = new Date();
-                const deadlines = tenders.filter(t => {
+                const deadlines = openTenders.filter(t => {
                     const days = (new Date(t.closingDate) - now) / 86400000;
                     return days > 0 && days <= 7;
                 });
@@ -851,24 +854,62 @@
                 document.getElementById('stat-pending').textContent = drafts.length;
                 document.getElementById('stat-deadline').textContent = deadlines.length;
 
-                document.getElementById('recent-tenders').innerHTML = openTenders.slice(0, 5).map(t => `
+                // Banner: datos de muestra o reales
+                const bannerEl = document.getElementById('dashboard-sync-banner');
+                if (countData && countData.real === 0) {
+                    const lastSync = licitStatus?.lastSync
+                        ? `Última sync: ${new Date(licitStatus.lastSync).toLocaleString('es-AR')}`
+                        : 'Nunca sincronizado';
+                    bannerEl.innerHTML = `<div class="alert alert-warning" style="margin-bottom:15px;">
+                        ⚠️ <strong>Mostrando datos de ejemplo.</strong> Presione <strong>Sync LICITOMETRO</strong> para cargar licitaciones reales de Argentina.
+                        <span style="float:right;font-size:11px;color:var(--text-muted)">${lastSync}</span>
+                    </div>`;
+                } else if (licitStatus?.lastSync) {
+                    bannerEl.innerHTML = `<div style="text-align:right;font-size:11px;color:var(--text-muted);margin-bottom:8px;">
+                        ✓ ${countData?.real ?? '?'} licitaciones reales · Sync: ${new Date(licitStatus.lastSync).toLocaleString('es-AR')}
+                    </div>`;
+                } else {
+                    bannerEl.innerHTML = '';
+                }
+
+                // Licitaciones abiertas con días restantes
+                document.getElementById('recent-tenders').innerHTML = openTenders.slice(0, 5).map(t => {
+                    const daysLeft = Math.ceil((new Date(t.closingDate) - now) / 86400000);
+                    const urgency = daysLeft <= 3 ? 'var(--danger)' : daysLeft <= 7 ? 'var(--warning)' : 'var(--text-muted)';
+                    const daysLabel = daysLeft > 0
+                        ? `<span style="color:${urgency};font-size:11px;">Cierra en ${daysLeft}d</span>`
+                        : `<span style="color:var(--text-muted);font-size:11px;">${new Date(t.closingDate).toLocaleDateString('es-AR')}</span>`;
+                    return `
                     <div style="padding: 12px 0; border-bottom: 1px solid #f0f0f0; cursor: pointer;" onclick="viewTender('${t.id}')">
                         <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <div><strong style="font-size: 13px;">${t.number}</strong>
-                            <p style="color: var(--text-light); font-size: 12px; margin-top: 3px;">${t.title.substring(0, 55)}${t.title.length > 55 ? '...' : ''}</p></div>
-                            <div style="text-align: right;"><span class="badge badge-abierta">${t.status}</span>
-                            <p style="color: var(--text-muted); font-size: 11px; margin-top: 3px;">${new Date(t.closingDate).toLocaleDateString('es-AR')}</p></div>
+                            <div style="flex:1;min-width:0;">
+                                <strong style="font-size: 13px;">${t.number}</strong>
+                                <p style="color: var(--text-light); font-size: 12px; margin-top: 3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${t.title.substring(0, 50)}${t.title.length > 50 ? '…' : ''}</p>
+                            </div>
+                            <div style="text-align: right; margin-left: 10px; flex-shrink:0;">
+                                <span class="badge badge-abierta">abierta</span>
+                                <div style="margin-top: 3px;">${daysLabel}</div>
+                            </div>
                         </div>
-                    </div>
-                `).join('') || '<div class="empty-state"><p>No hay licitaciones abiertas</p></div>';
-
-                document.getElementById('dashboard-alerts').innerHTML = deadlines.map(t => {
-                    const days = Math.ceil((new Date(t.closingDate) - now) / 86400000);
-                    return `<div class="alert ${days <= 2 ? 'alert-danger' : 'alert-warning'}">
-                        <strong>${t.number}</strong> - ${t.title.substring(0, 40)}...
-                        <br><small>Vence en ${days} dia${days !== 1 ? 's' : ''}</small>
                     </div>`;
-                }).join('') || '<div class="alert alert-success">Sin alertas pendientes</div>';
+                }).join('') || '<div class="empty-state"><p>No hay licitaciones abiertas. Haga Sync LICITOMETRO.</p></div>';
+
+                // Alertas
+                document.getElementById('dashboard-alerts').innerHTML = deadlines.length > 0
+                    ? deadlines.map(t => {
+                        const days = Math.ceil((new Date(t.closingDate) - now) / 86400000);
+                        return `<div class="alert ${days <= 2 ? 'alert-danger' : 'alert-warning'}">
+                            <strong>${t.number}</strong> — ${t.title.substring(0, 45)}${t.title.length > 45 ? '…' : ''}
+                            <br><small>⏰ Vence en <strong>${days}</strong> día${days !== 1 ? 's' : ''} · ${new Date(t.closingDate).toLocaleDateString('es-AR')}</small>
+                        </div>`;
+                    }).join('')
+                    : '<div class="alert alert-success">Sin alertas pendientes</div>';
+
+                // Actualizar indicador de sync en sidebar
+                if (licitStatus?.lastSync) {
+                    document.getElementById('sync-indicator').classList.remove('disconnected');
+                    document.getElementById('sync-label').textContent = `Sync: ${new Date(licitStatus.lastSync).toLocaleTimeString('es-AR')}`;
+                }
             } catch (error) {
                 console.error('Dashboard error:', error);
                 document.getElementById('recent-tenders').innerHTML = '<div class="alert alert-danger">Error cargando datos. Verifique que el servidor este corriendo.</div>';
@@ -1273,6 +1314,11 @@
                 // Update sync indicator
                 document.getElementById('sync-indicator').classList.remove('disconnected');
                 document.getElementById('sync-label').textContent = `Sync: ${new Date().toLocaleTimeString('es-AR')}`;
+
+                // Reload dashboard if visible
+                if (document.getElementById('dashboard')?.classList.contains('active')) {
+                    loadDashboard();
+                }
             } catch (error) {
                 showToast('Error sincronizando con LICITOMETRO.AR', 'error');
                 const resultEl = document.getElementById('sync-result');

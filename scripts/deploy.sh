@@ -73,20 +73,21 @@ $COMPOSE up -d --force-recreate cotizar-api
 docker image prune -f &>/dev/null || true
 
 # ── 4. HEALTH CHECK ──────────────────────────────────────────────────────────
-log "4/5 · Health check (espera hasta 90s)"
+HEALTH_ATTEMPTS=30
+log "4/5 · Health check (espera hasta $((HEALTH_ATTEMPTS * 5))s)"
 HEALTH_OK=false
-for i in $(seq 1 18); do
+for i in $(seq 1 ${HEALTH_ATTEMPTS}); do
   # Intento externo (localhost:PORT)
   RESP=$(curl -sf --max-time 3 "http://localhost:${DEPLOY_PORT}/cotizar/health" 2>/dev/null || true)
   if echo "$RESP" | grep -q '"status"'; then
-    log "     OK externo en intento $i/18 (localhost:${DEPLOY_PORT})"
+    log "     OK externo en intento $i/${HEALTH_ATTEMPTS} (localhost:${DEPLOY_PORT})"
     HEALTH_OK=true
     break
   fi
   # Fallback: chequear desde adentro del container (evita problemas de iptables/NAT del VPS)
   RESP_INT=$(docker exec cotizar-api wget -qO- "http://localhost:3000/cotizar/health" 2>/dev/null || true)
   if echo "$RESP_INT" | grep -q '"status"'; then
-    log "     OK interno en intento $i/18 (docker exec)"
+    log "     OK interno en intento $i/${HEALTH_ATTEMPTS} (docker exec)"
     HEALTH_OK=true
     break
   fi
