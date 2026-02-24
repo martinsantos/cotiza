@@ -10,7 +10,7 @@ import { legalService } from '../services/legal.service.js';
 import { trackingService } from '../services/tracking.service.js';
 import { competitiveService } from '../services/competitive.service.js';
 import { licitometroService } from '../services/licitometro.service.js';
-import { getConfig, loadConfig } from '../config/index.js';
+import { getConfig, loadConfig, saveConfig } from '../config/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -190,6 +190,58 @@ router.post('/api/bids/:id/calculate', async (req: Request, res: Response) => {
     res.json(pricing);
   } catch (error) {
     res.status(500).json({ error: 'Failed to calculate pricing' });
+  }
+});
+
+// Update bid (PUT)
+router.put('/api/bids/:id', async (req: Request, res: Response) => {
+  try {
+    const updated = await bidService.update(req.params.id, req.body);
+    if (!updated) return res.status(404).json({ error: 'Bid not found' });
+    res.json(updated);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to update bid' });
+  }
+});
+
+// Add line item
+router.post('/api/bids/:id/items', async (req: Request, res: Response) => {
+  try {
+    const bid = await bidService.addLineItem(req.params.id, req.body);
+    res.status(201).json(bid);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to add line item' });
+  }
+});
+
+// Update line item
+router.put('/api/bids/:id/items/:itemId', async (req: Request, res: Response) => {
+  try {
+    const bid = await bidService.updateLineItem(req.params.id, req.params.itemId, req.body);
+    res.json(bid);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to update line item' });
+  }
+});
+
+// Delete line item
+router.delete('/api/bids/:id/items/:itemId', async (req: Request, res: Response) => {
+  try {
+    const bid = await bidService.deleteLineItem(req.params.id, req.params.itemId);
+    res.json(bid);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to delete line item' });
+  }
+});
+
+// Delete bid
+router.delete('/api/bids/:id', async (req: Request, res: Response) => {
+  try {
+    const deleted = await bidService.delete(req.params.id);
+    if (!deleted) return res.status(404).json({ error: 'Bid not found' });
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to delete bid' });
   }
 });
 
@@ -500,17 +552,32 @@ router.get('/api/licitometro/rubros', async (_req: Request, res: Response) => {
 router.get('/api/config', (_req: Request, res: Response) => {
   try {
     const config = getConfig();
-    // Remove sensitive data
-    const safeConfig = {
-      company: {
-        name: config.company.name,
-        taxId: config.company.taxId
-      },
+    res.json({
+      company: { name: config.company.name, taxId: config.company.taxId,
+        contact: config.company.contact, address: config.company.address },
       defaults: config.defaults
-    };
-    res.json(safeConfig);
+    });
   } catch (error) {
     res.status(500).json({ error: 'Failed to get config' });
+  }
+});
+
+// Save config
+router.post('/api/config', (req: Request, res: Response) => {
+  try {
+    const { company, defaults } = req.body;
+    const current = getConfig();
+    const merged = {
+      ...current,
+      company: company ? { ...current.company, ...company } : current.company,
+      defaults: defaults ? { ...current.defaults, ...defaults } : current.defaults,
+    };
+    const saved = saveConfig(merged);
+    res.json({ company: { name: saved.company.name, taxId: saved.company.taxId,
+      contact: saved.company.contact, address: saved.company.address },
+      defaults: saved.defaults });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to save config' });
   }
 });
 

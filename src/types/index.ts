@@ -62,11 +62,24 @@ export interface TenderTerms {
   validityOfOffer: number;
 }
 
+export interface LineItem {
+  id: string;
+  description: string;
+  unit: string;       // unidad de medida: un, m², kg, hora, gl, etc.
+  quantity: number;
+  unitPrice: number;
+  subtotal: number;   // quantity * unitPrice
+  notes?: string;
+}
+
 export interface Bid {
   id: string;
   tenderId: string;
   companyId: string;
   status: 'draft' | 'analyzing' | 'ready' | 'submitted' | 'accepted' | 'rejected';
+  lineItems: LineItem[];          // renglones de la oferta
+  notes: string;                  // notas generales de la oferta
+  internalNotes: string;          // notas internas (no se imprimen)
   technicalProposal: TechnicalProposal;
   commercialOffer: CommercialOffer;
   legalCompliance: LegalCompliance;

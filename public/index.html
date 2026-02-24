@@ -350,17 +350,17 @@
                     <div class="card">
                         <div class="card-header">
                             <span class="card-title">Mis Cotizaciones</span>
-                            <button class="btn btn-primary btn-sm" onclick="openNewBidModal()">+ Nueva</button>
+                            <button class="btn btn-primary btn-sm" onclick="openNewBidModal()">+ Nueva Cotizacion</button>
                         </div>
                         <table>
                             <thead>
                                 <tr>
-                                    <th>ID</th>
                                     <th>Licitacion</th>
                                     <th>Estado</th>
-                                    <th>Total</th>
+                                    <th>Renglones</th>
+                                    <th>Total c/IVA</th>
                                     <th>Puntaje</th>
-                                    <th>Fecha</th>
+                                    <th>Creada</th>
                                     <th>Acciones</th>
                                 </tr>
                             </thead>
@@ -671,8 +671,152 @@
         </div>
     </div>
 
+    <!-- ==================== OFFER EDITOR OVERLAY ==================== -->
+    <div id="offer-editor-overlay" style="display:none; position:fixed; inset:0; background:#f5f7fa; z-index:300; overflow:hidden; flex-direction:column;">
+
+        <!-- Editor top bar -->
+        <div style="background:#fff; border-bottom:1px solid #e2e8f0; padding:12px 20px; display:flex; align-items:center; gap:12px; flex-shrink:0;">
+            <button class="btn btn-outline btn-sm" onclick="closeOfferEditor()">&#8592; Volver</button>
+            <div style="flex:1;">
+                <div id="oe-title" style="font-weight:700; font-size:15px;"></div>
+                <div id="oe-subtitle" style="font-size:12px; color:var(--text-muted);"></div>
+            </div>
+            <select id="oe-status" class="btn btn-outline btn-sm" style="cursor:pointer;" onchange="saveOfferStatus()">
+                <option value="draft">Borrador</option>
+                <option value="ready">Lista para presentar</option>
+                <option value="submitted">Presentada</option>
+                <option value="accepted">Aceptada</option>
+                <option value="rejected">Rechazada</option>
+            </select>
+            <button class="btn btn-outline btn-sm" onclick="openAnalysisModal(currentBidId)">Analizar</button>
+            <button class="btn btn-outline btn-sm" onclick="printOffer()">Imprimir PDF</button>
+            <button class="btn btn-primary btn-sm" onclick="saveOffer()">Guardar</button>
+        </div>
+
+        <!-- Editor body: two columns -->
+        <div style="display:flex; flex:1; overflow:hidden; gap:0;">
+
+            <!-- Left: line items + technical -->
+            <div style="flex:1; overflow-y:auto; padding:20px; min-width:0;">
+
+                <!-- Renglones (Line Items) -->
+                <div class="card" style="margin-bottom:16px;">
+                    <div class="card-header">
+                        <span class="card-title">Planilla de Cotizacion (Renglones)</span>
+                        <button class="btn btn-primary btn-sm" onclick="addLineItemRow()">+ Agregar Renglon</button>
+                    </div>
+                    <div style="overflow-x:auto;">
+                        <table id="oe-items-table" style="min-width:700px;">
+                            <thead>
+                                <tr>
+                                    <th style="width:30px;">#</th>
+                                    <th>Descripcion del Item / Servicio</th>
+                                    <th style="width:80px;">Unidad</th>
+                                    <th style="width:90px;">Cantidad</th>
+                                    <th style="width:130px;">Precio Unitario $</th>
+                                    <th style="width:120px;">Total $</th>
+                                    <th style="width:40px;"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="oe-items-body">
+                                <tr id="oe-empty-row"><td colspan="7" style="text-align:center; color:var(--text-muted); padding:20px;">
+                                    Sin renglones. Haga clic en "+ Agregar Renglon" para comenzar.
+                                </td></tr>
+                            </tbody>
+                            <tfoot>
+                                <tr id="oe-items-footer" style="display:none; background:#f8fafc; font-weight:600;">
+                                    <td colspan="5" style="text-align:right; padding:8px 12px;">Subtotal s/IVA:</td>
+                                    <td style="padding:8px 12px;" id="oe-subtotal-cell">$0</td>
+                                    <td></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Condiciones comerciales -->
+                <div class="card" style="margin-bottom:16px;">
+                    <div class="card-header"><span class="card-title">Condiciones Comerciales</span></div>
+                    <div class="form-row" style="padding:4px 0;">
+                        <div class="form-group">
+                            <label>Descuento (%)</label>
+                            <input type="number" id="oe-discount" value="0" min="0" max="100" style="width:100%;" oninput="updateOeTotals()">
+                        </div>
+                        <div class="form-group">
+                            <label>Plazo de entrega</label>
+                            <input type="text" id="oe-delivery" placeholder="ej: 30 dias habiles" style="width:100%;">
+                        </div>
+                        <div class="form-group">
+                            <label>Validez de oferta (dias)</label>
+                            <input type="number" id="oe-validity" value="60" min="1" style="width:100%;">
+                        </div>
+                        <div class="form-group">
+                            <label>Condicion de pago</label>
+                            <input type="text" id="oe-payment" placeholder="ej: 30 dias de factura" style="width:100%;">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Propuesta Tecnica -->
+                <div class="card" style="margin-bottom:16px;">
+                    <div class="card-header"><span class="card-title">Propuesta Tecnica</span></div>
+                    <div class="form-group">
+                        <label>Metodologia / Descripcion del trabajo</label>
+                        <textarea id="oe-methodology" rows="5" style="width:100%; resize:vertical;" placeholder="Describa como realizara el trabajo, metodologia, recursos que se emplearán, experiencia previa, etc."></textarea>
+                    </div>
+                </div>
+
+                <!-- Cumplimiento de Requisitos -->
+                <div class="card" style="margin-bottom:16px;">
+                    <div class="card-header"><span class="card-title">Cumplimiento de Requisitos</span></div>
+                    <div id="oe-compliance-list" style="padding:4px 0;"></div>
+                </div>
+
+                <!-- Notas internas -->
+                <div class="card">
+                    <div class="card-header"><span class="card-title">Notas Internas (no se imprimen)</span></div>
+                    <div class="form-group">
+                        <textarea id="oe-internal-notes" rows="3" style="width:100%; resize:vertical;" placeholder="Notas internas, estrategia, comentarios del equipo..."></textarea>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right sidebar: totals + tender info -->
+            <div style="width:280px; flex-shrink:0; background:#fff; border-left:1px solid #e2e8f0; overflow-y:auto; padding:20px;">
+                <!-- Totals card -->
+                <div class="card" style="margin-bottom:16px;">
+                    <div class="card-header"><span class="card-title">Resumen</span></div>
+                    <div style="padding:4px 0;">
+                        <div class="pricing-row"><span>Subtotal s/IVA</span><strong id="oe-t-subtotal">$0</strong></div>
+                        <div class="pricing-row"><span id="oe-t-disc-label">Descuento (0%)</span><strong id="oe-t-disc">$0</strong></div>
+                        <div class="pricing-row"><span>Neto gravado</span><strong id="oe-t-net">$0</strong></div>
+                        <div class="pricing-row"><span id="oe-t-iva-label">IVA (21%)</span><strong id="oe-t-iva">$0</strong></div>
+                        <div class="pricing-row total"><span>TOTAL</span><span id="oe-t-total">$0</span></div>
+                    </div>
+                    <div style="margin-top:8px; font-size:11px; color:var(--text-muted); text-align:right;" id="oe-t-budget-compare"></div>
+                </div>
+
+                <!-- Tender info -->
+                <div class="card">
+                    <div class="card-header"><span class="card-title">Licitacion</span></div>
+                    <div id="oe-tender-info" style="font-size:13px; line-height:1.8;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Toast container -->
     <div class="toast-container" id="toast-container"></div>
+
+    <!-- Print stylesheet -->
+    <style id="print-style">
+    @media print {
+        body > *:not(#offer-print-area) { display: none !important; }
+        #offer-print-area { display: block !important; }
+    }
+    #offer-print-area { display: none; }
+    </style>
+    <div id="offer-print-area"></div>
 
     <script>
         // === CONFIG ===
@@ -1000,30 +1144,49 @@
                     tendersCache.length ? Promise.resolve(tendersCache) : apiFetch('/tenders')
                 ]);
                 if (!bidsCache.length) {
-                    document.getElementById('bids-table').innerHTML = '<tr><td colspan="7"><div class="empty-state"><div class="icon">&#9998;</div><p>No hay cotizaciones. Crea una desde una licitacion.</p></div></td></tr>';
+                    document.getElementById('bids-table').innerHTML = `<tr><td colspan="7">
+                        <div class="empty-state">
+                            <div class="icon">&#9998;</div>
+                            <p>No hay cotizaciones aun.</p>
+                            <button class="btn btn-primary" onclick="openNewBidModal()">+ Nueva Cotizacion</button>
+                        </div></td></tr>`;
                     return;
                 }
                 document.getElementById('bids-table').innerHTML = bidsCache.map(b => {
                     const tender = tendersCache.find(t => t.id === b.tenderId);
                     const tenderDisplay = tender
-                        ? `<strong>${tender.number}</strong><br><small style="color:var(--text-muted);">${tender.title.substring(0, 38)}${tender.title.length > 38 ? '...' : ''}</small>`
-                        : `<small style="color:var(--text-muted);">${b.tenderId.substring(0, 12)}…</small>`;
+                        ? `<strong>${tender.number}</strong><br><small style="color:var(--text-muted);">${tender.title.substring(0, 45)}${tender.title.length > 45 ? '…' : ''}</small>`
+                        : `<small style="color:var(--text-muted);">${b.tenderId.substring(0, 16)}…</small>`;
+                    const itemCount = (b.lineItems || []).length;
+                    const total = b.commercialOffer?.total;
+                    const statusColors = { draft: 'badge-draft', ready: 'badge-abierta', submitted: 'badge-adjudicada', accepted: 'badge-abierta', rejected: 'badge-desierta', analyzing: 'badge-draft' };
                     return `
-                    <tr>
-                        <td><strong style="font-size: 12px;">${b.id}</strong></td>
-                        <td style="font-size: 12px;">${tenderDisplay}</td>
-                        <td><span class="badge badge-${b.status}">${b.status}</span></td>
-                        <td>${b.commercialOffer?.total ? '$' + b.commercialOffer.total.toLocaleString('es-AR') : '-'}</td>
-                        <td>${b.competitivenessScore ? b.competitivenessScore + '%' : '-'}</td>
-                        <td style="font-size: 12px;">${new Date(b.createdAt).toLocaleDateString('es-AR')}</td>
-                        <td>
-                            <button class="btn btn-sm btn-primary" onclick="openAnalysisModal('${b.id}')">Analizar</button>
-                            <button class="btn btn-sm btn-outline" onclick="openCalculateModal('${b.id}')">Calcular</button>
+                    <tr style="cursor:pointer;" onclick="openOfferEditor('${b.id}')">
+                        <td style="font-size: 13px;">${tenderDisplay}</td>
+                        <td><span class="badge ${statusColors[b.status] || 'badge-draft'}">${b.status}</span></td>
+                        <td style="text-align:center;">${itemCount > 0 ? `<strong>${itemCount}</strong> renglones` : '<span style="color:var(--text-muted)">sin renglones</span>'}</td>
+                        <td><strong>${total ? '$' + Math.round(total).toLocaleString('es-AR') : '—'}</strong></td>
+                        <td>${b.competitivenessScore ? b.competitivenessScore + '%' : '—'}</td>
+                        <td style="font-size: 12px; color:var(--text-muted);">${new Date(b.createdAt).toLocaleDateString('es-AR')}</td>
+                        <td onclick="event.stopPropagation();">
+                            <button class="btn btn-sm btn-primary" title="Abrir editor" onclick="openOfferEditor('${b.id}')">Editar</button>
+                            <button class="btn btn-sm btn-outline" title="Eliminar" onclick="deleteBid('${b.id}')">&#x2715;</button>
                         </td>
-                    </tr>
-                `; }).join('');
+                    </tr>`;
+                }).join('');
             } catch (error) {
                 document.getElementById('bids-table').innerHTML = '<tr><td colspan="7"><div class="alert alert-danger">Error cargando cotizaciones</div></td></tr>';
+            }
+        }
+
+        async function deleteBid(bidId) {
+            if (!confirm('¿Eliminar esta cotizacion?')) return;
+            try {
+                await apiFetch(`/bids/${bidId}`, { method: 'DELETE' });
+                showToast('Cotizacion eliminada', 'success');
+                loadBids();
+            } catch (error) {
+                showToast('Error eliminando cotizacion', 'error');
             }
         }
 
@@ -1047,10 +1210,13 @@
             const tenderId = document.getElementById('bid-tender-select').value;
             if (!tenderId) { showToast('Seleccione una licitacion', 'error'); return; }
             try {
-                await apiFetch('/bids', { method: 'POST', body: JSON.stringify({ tenderId }) });
+                const bid = await apiFetch('/bids', { method: 'POST', body: JSON.stringify({ tenderId }) });
                 closeModal('new-bid-modal');
-                showToast('Cotizacion creada exitosamente', 'success');
-                loadBids();
+                showToast('Cotizacion creada. Abriendo editor...', 'success');
+                // Navigate to bids section and open the editor immediately
+                showSection('bids');
+                await loadBids();
+                openOfferEditor(bid.id);
             } catch (error) {
                 showToast('Error creando cotizacion', 'error');
             }
@@ -1336,6 +1502,8 @@
                 .then(config => {
                     document.getElementById('company-name').value = config.company?.name || '';
                     document.getElementById('company-taxid').value = config.company?.taxId || '';
+                    document.getElementById('company-email').value = config.company?.contact?.email || '';
+                    document.getElementById('company-phone').value = config.company?.contact?.phone || '';
                     if (config.defaults) {
                         document.getElementById('default-currency').value = config.defaults.currency || 'ARS';
                         document.getElementById('tax-rate').value = config.defaults.taxRate || 21;
@@ -1345,13 +1513,39 @@
                 .catch(() => {});
         }
 
-        document.getElementById('config-form').addEventListener('submit', e => {
+        document.getElementById('config-form').addEventListener('submit', async e => {
             e.preventDefault();
-            showToast('Configuracion de empresa guardada', 'success');
+            try {
+                await apiFetch('/config', { method: 'POST', body: JSON.stringify({
+                    company: {
+                        name: document.getElementById('company-name').value,
+                        taxId: document.getElementById('company-taxid').value,
+                        contact: {
+                            email: document.getElementById('company-email').value,
+                            phone: document.getElementById('company-phone').value
+                        }
+                    }
+                })});
+                showToast('Datos de empresa guardados', 'success');
+            } catch (error) {
+                showToast('Error guardando configuracion', 'error');
+            }
         });
-        document.getElementById('bid-config-form').addEventListener('submit', e => {
+
+        document.getElementById('bid-config-form').addEventListener('submit', async e => {
             e.preventDefault();
-            showToast('Parametros de cotizacion guardados', 'success');
+            try {
+                await apiFetch('/config', { method: 'POST', body: JSON.stringify({
+                    defaults: {
+                        currency: document.getElementById('default-currency').value,
+                        taxRate: Number(document.getElementById('tax-rate').value),
+                        profitMargin: Number(document.getElementById('profit-margin').value)
+                    }
+                })});
+                showToast('Parametros guardados', 'success');
+            } catch (error) {
+                showToast('Error guardando parametros', 'error');
+            }
         });
 
         // === SCRAPERS ===
@@ -1485,6 +1679,469 @@
                     <a href="https://github.com/martinsantos/licitometro/tree/main/backend/scrapers" target="_blank" style="color:var(--info)">Ver scrapers en GitHub</a>
                 </p>
             `;
+        }
+
+        // ==================== OFFER EDITOR ====================
+        let currentBidId = null;
+        let currentBidData = null;
+        let oeTaxRate = 21;
+
+        async function openOfferEditor(bidId) {
+            currentBidId = bidId;
+            const overlay = document.getElementById('offer-editor-overlay');
+            overlay.style.display = 'flex';
+            document.body.style.overflow = 'hidden';
+
+            // Load bid and tender in parallel
+            try {
+                const [bid, config] = await Promise.all([
+                    apiFetch(`/bids/${bidId}`),
+                    apiFetch('/config').catch(() => ({ defaults: { taxRate: 21 } }))
+                ]);
+                currentBidData = bid;
+                oeTaxRate = config.defaults?.taxRate || 21;
+
+                // Find tender info
+                let tender = tendersCache.find(t => t.id === bid.tenderId);
+                if (!tender) {
+                    try { tender = await apiFetch(`/tenders/${bid.tenderId}`); } catch(e) { tender = null; }
+                }
+
+                // Set header
+                const tenderName = tender ? `${tender.number} — ${tender.title.substring(0, 60)}` : bid.tenderId;
+                document.getElementById('oe-title').textContent = `Cotizacion: ${bid.id}`;
+                document.getElementById('oe-subtitle').textContent = tenderName;
+                document.getElementById('oe-status').value = bid.status || 'draft';
+
+                // Set conditions
+                document.getElementById('oe-discount').value = bid.commercialOffer?.discount || 0;
+                document.getElementById('oe-delivery').value = bid.commercialOffer?.paymentTerms ? '' : (tender?.terms?.deliveryTime || '');
+                document.getElementById('oe-validity').value = bid.commercialOffer?.validityDays || tender?.terms?.validityOfOffer || 60;
+                document.getElementById('oe-payment').value = bid.commercialOffer?.paymentTerms || '';
+                document.getElementById('oe-methodology').value = bid.technicalProposal?.methodology || '';
+                document.getElementById('oe-internal-notes').value = bid.internalNotes || '';
+
+                // Render line items
+                renderOeItems(bid.lineItems || []);
+
+                // Compliance matrix
+                renderOeCompliance(bid.complianceMatrix || [], tender?.requirements || []);
+
+                // Tender info sidebar
+                if (tender) {
+                    const daysLeft = Math.ceil((new Date(tender.closingDate) - new Date()) / 86400000);
+                    document.getElementById('oe-tender-info').innerHTML = `
+                        <div class="detail-meta">
+                            <div class="meta-item"><span class="meta-label">Organismo</span><span class="meta-value">${tender.agency}</span></div>
+                            <div class="meta-item"><span class="meta-label">Presupuesto</span><span class="meta-value"><strong>$${tender.budget.toLocaleString('es-AR')} ${tender.currency}</strong></span></div>
+                            <div class="meta-item"><span class="meta-label">Cierre</span><span class="meta-value">${new Date(tender.closingDate).toLocaleDateString('es-AR')}
+                                <span style="color:${daysLeft <= 3 ? 'var(--danger)' : daysLeft <= 7 ? 'var(--warning)' : 'var(--text-muted)'}; font-size:11px;"> (${daysLeft > 0 ? daysLeft + 'd restantes' : 'VENCIDA'})</span>
+                            </span></div>
+                            <div class="meta-item"><span class="meta-label">Categoria</span><span class="meta-value">${tender.category}</span></div>
+                            <div class="meta-item"><span class="meta-label">Region</span><span class="meta-value">${tender.region}</span></div>
+                        </div>
+                        <div style="margin-top:10px; font-size:12px; color:var(--text-muted);">${tender.description?.substring(0, 180) || ''}${(tender.description?.length || 0) > 180 ? '…' : ''}</div>
+                    `;
+                    document.getElementById('oe-t-budget-compare').textContent = `Presupuesto oficial: $${tender.budget.toLocaleString('es-AR')} ${tender.currency}`;
+                }
+
+                updateOeTotals();
+            } catch (error) {
+                console.error('Error opening offer editor:', error);
+                showToast('Error cargando cotizacion', 'error');
+                closeOfferEditor();
+            }
+        }
+
+        function closeOfferEditor() {
+            document.getElementById('offer-editor-overlay').style.display = 'none';
+            document.body.style.overflow = '';
+            currentBidId = null;
+            currentBidData = null;
+            loadBids(); // refresh bids list
+        }
+
+        function renderOeItems(items) {
+            const tbody = document.getElementById('oe-items-body');
+            const footer = document.getElementById('oe-items-footer');
+            const emptyRow = document.getElementById('oe-empty-row');
+
+            if (!items.length) {
+                tbody.innerHTML = '<tr id="oe-empty-row"><td colspan="7" style="text-align:center; color:var(--text-muted); padding:20px;">Sin renglones. Haga clic en "+ Agregar Renglon" para comenzar.</td></tr>';
+                footer.style.display = 'none';
+                updateOeTotals();
+                return;
+            }
+
+            footer.style.display = '';
+            tbody.innerHTML = items.map((item, i) => `
+                <tr data-item-id="${item.id}">
+                    <td style="text-align:center; color:var(--text-muted); font-size:12px;">${i + 1}</td>
+                    <td><input type="text" value="${escHtml(item.description)}" style="width:100%; border:none; background:transparent; padding:4px 2px;" placeholder="Descripcion del item..." onchange="updateItemField('${item.id}', 'description', this.value)"></td>
+                    <td><input type="text" value="${escHtml(item.unit)}" style="width:100%; border:none; background:transparent; padding:4px 2px; text-align:center;" placeholder="un" onchange="updateItemField('${item.id}', 'unit', this.value)"></td>
+                    <td><input type="number" value="${item.quantity}" min="0" step="any" style="width:100%; border:none; background:transparent; padding:4px 2px; text-align:right;" oninput="updateItemNumbers('${item.id}', this)"></td>
+                    <td><input type="number" value="${item.unitPrice}" min="0" step="any" style="width:100%; border:none; background:transparent; padding:4px 2px; text-align:right;" oninput="updateItemNumbers('${item.id}', this)"></td>
+                    <td style="text-align:right; font-weight:600;" id="oe-item-total-${item.id}">$${item.subtotal.toLocaleString('es-AR')}</td>
+                    <td style="text-align:center;"><button style="background:none; border:none; color:var(--danger); cursor:pointer; font-size:16px;" title="Eliminar" onclick="removeLineItem('${item.id}')">&#x2715;</button></td>
+                </tr>
+            `).join('');
+            updateOeTotals();
+        }
+
+        function escHtml(str) {
+            return (str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        }
+
+        function renderOeCompliance(matrix, requirements) {
+            const container = document.getElementById('oe-compliance-list');
+            if (!requirements.length && !matrix.length) {
+                container.innerHTML = '<p style="color:var(--text-muted); font-size:13px;">Esta licitacion no tiene requisitos detallados.</p>';
+                return;
+            }
+            const items = requirements.length ? requirements : matrix.map(m => ({ id: m.requirementId, description: m.description, mandatory: true, type: 'general' }));
+            container.innerHTML = items.map((req, i) => {
+                const compliance = matrix.find(m => m.requirementId === req.id) || {};
+                return `
+                <div style="border:1px solid #e2e8f0; border-radius:6px; padding:12px; margin-bottom:8px; background:${compliance.compliant ? '#f0fdf4' : '#fff'};">
+                    <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+                        <input type="checkbox" id="comp-${req.id}" ${compliance.compliant ? 'checked' : ''} onchange="updateCompliance('${req.id}', this.checked)">
+                        <label for="comp-${req.id}" style="font-size:13px; font-weight:600; cursor:pointer;">
+                            ${req.mandatory ? '<span style="color:var(--danger)">*</span> ' : ''}${req.description}
+                            <span class="badge badge-${req.type}" style="font-size:10px; margin-left:6px;">${req.type}</span>
+                        </label>
+                    </div>
+                    <input type="text" placeholder="Respuesta / referencia documental..." value="${escHtml(compliance.response || '')}"
+                        style="width:100%; padding:6px 8px; border:1px solid #e2e8f0; border-radius:4px; font-size:12px;"
+                        onchange="updateComplianceResponse('${req.id}', this.value)">
+                </div>`;
+            }).join('');
+        }
+
+        // Real-time totals calculation (client-side, from DOM values)
+        function updateOeTotals() {
+            const items = currentBidData?.lineItems || [];
+            // Sum from DOM inputs (most up-to-date)
+            let rawSubtotal = 0;
+            document.querySelectorAll('#oe-items-body tr[data-item-id]').forEach(row => {
+                const qtyInput = row.querySelector('input[type="number"]:nth-of-type(1)');
+                const priceInput = row.querySelector('input[type="number"]:nth-of-type(2)');
+                if (qtyInput && priceInput) {
+                    rawSubtotal += (parseFloat(qtyInput.value) || 0) * (parseFloat(priceInput.value) || 0);
+                }
+            });
+            // Fallback to stored items if DOM is empty
+            if (rawSubtotal === 0 && items.length) {
+                rawSubtotal = items.reduce((s, it) => s + it.subtotal, 0);
+            }
+
+            const discount = parseFloat(document.getElementById('oe-discount')?.value || '0') || 0;
+            const discountAmt = rawSubtotal * (discount / 100);
+            const net = rawSubtotal - discountAmt;
+            const ivaAmt = net * (oeTaxRate / 100);
+            const total = net + ivaAmt;
+
+            const fmt = n => '$' + Math.round(n).toLocaleString('es-AR');
+            document.getElementById('oe-t-subtotal').textContent = fmt(rawSubtotal);
+            document.getElementById('oe-t-disc-label').textContent = `Descuento (${discount}%)`;
+            document.getElementById('oe-t-disc').textContent = '−' + fmt(discountAmt);
+            document.getElementById('oe-t-net').textContent = fmt(net);
+            document.getElementById('oe-t-iva-label').textContent = `IVA (${oeTaxRate}%)`;
+            document.getElementById('oe-t-iva').textContent = fmt(ivaAmt);
+            document.getElementById('oe-t-total').textContent = fmt(total);
+
+            const subtotalCell = document.getElementById('oe-subtotal-cell');
+            if (subtotalCell) subtotalCell.textContent = fmt(rawSubtotal);
+        }
+
+        // Called when qty or price inputs change
+        function updateItemNumbers(itemId, inputEl) {
+            const row = inputEl.closest('tr[data-item-id]');
+            const inputs = row.querySelectorAll('input[type="number"]');
+            const qty = parseFloat(inputs[0]?.value || '0') || 0;
+            const price = parseFloat(inputs[1]?.value || '0') || 0;
+            const subtotal = qty * price;
+            const cell = document.getElementById(`oe-item-total-${itemId}`);
+            if (cell) cell.textContent = '$' + subtotal.toLocaleString('es-AR');
+            updateOeTotals();
+        }
+
+        async function addLineItemRow() {
+            if (!currentBidId) return;
+            try {
+                const bid = await apiFetch(`/bids/${currentBidId}/items`, {
+                    method: 'POST',
+                    body: JSON.stringify({ description: '', unit: 'un', quantity: 1, unitPrice: 0 })
+                });
+                currentBidData = bid;
+                renderOeItems(bid.lineItems || []);
+                // Focus last description input
+                const rows = document.querySelectorAll('#oe-items-body tr[data-item-id]');
+                if (rows.length) {
+                    const lastInput = rows[rows.length - 1].querySelector('input[type="text"]');
+                    if (lastInput) { lastInput.focus(); lastInput.select(); }
+                }
+            } catch(e) {
+                showToast('Error agregando renglon', 'error');
+            }
+        }
+
+        async function removeLineItem(itemId) {
+            if (!currentBidId) return;
+            try {
+                const bid = await apiFetch(`/bids/${currentBidId}/items/${itemId}`, { method: 'DELETE' });
+                currentBidData = bid;
+                renderOeItems(bid.lineItems || []);
+            } catch(e) {
+                showToast('Error eliminando renglon', 'error');
+            }
+        }
+
+        // Debounced field update for text fields
+        const _fieldTimers = {};
+        function updateItemField(itemId, field, value) {
+            clearTimeout(_fieldTimers[itemId + field]);
+            _fieldTimers[itemId + field] = setTimeout(async () => {
+                if (!currentBidId) return;
+                try {
+                    const bid = await apiFetch(`/bids/${currentBidId}/items/${itemId}`, {
+                        method: 'PUT', body: JSON.stringify({ [field]: value })
+                    });
+                    currentBidData = bid;
+                } catch(e) { /* silent */ }
+            }, 600);
+        }
+
+        // Debounced number update — also saves quantity/price
+        const _numTimers = {};
+        function updateItemNumbersDebounced(itemId, qty, price) {
+            clearTimeout(_numTimers[itemId]);
+            _numTimers[itemId] = setTimeout(async () => {
+                if (!currentBidId) return;
+                try {
+                    const bid = await apiFetch(`/bids/${currentBidId}/items/${itemId}`, {
+                        method: 'PUT', body: JSON.stringify({ quantity: qty, unitPrice: price })
+                    });
+                    currentBidData = bid;
+                } catch(e) { /* silent */ }
+            }, 700);
+        }
+
+        function updateCompliance(reqId, checked) {
+            if (!currentBidData) return;
+            const matrix = currentBidData.complianceMatrix || [];
+            const existing = matrix.find(m => m.requirementId === reqId);
+            if (existing) existing.compliant = checked;
+            else matrix.push({ requirementId: reqId, description: '', response: '', compliant: checked });
+            currentBidData.complianceMatrix = matrix;
+        }
+
+        function updateComplianceResponse(reqId, value) {
+            if (!currentBidData) return;
+            const matrix = currentBidData.complianceMatrix || [];
+            const existing = matrix.find(m => m.requirementId === reqId);
+            if (existing) existing.response = value;
+            else matrix.push({ requirementId: reqId, description: '', response: value, compliant: false });
+            currentBidData.complianceMatrix = matrix;
+        }
+
+        async function saveOfferStatus() {
+            if (!currentBidId) return;
+            const status = document.getElementById('oe-status').value;
+            try {
+                await apiFetch(`/bids/${currentBidId}`, { method: 'PUT', body: JSON.stringify({ status }) });
+            } catch(e) { showToast('Error actualizando estado', 'error'); }
+        }
+
+        async function saveOffer() {
+            if (!currentBidId || !currentBidData) return;
+            const btn = document.querySelector('#offer-editor-overlay .btn-primary');
+            if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
+            try {
+                // Collect all pending number changes from DOM
+                const rows = document.querySelectorAll('#oe-items-body tr[data-item-id]');
+                const itemUpdates = [];
+                rows.forEach(row => {
+                    const itemId = row.dataset.itemId;
+                    const inputs = row.querySelectorAll('input');
+                    const description = inputs[0]?.value || '';
+                    const unit = inputs[1]?.value || 'un';
+                    const quantity = parseFloat(inputs[2]?.value || '0') || 0;
+                    const unitPrice = parseFloat(inputs[3]?.value || '0') || 0;
+                    itemUpdates.push({ itemId, description, unit, quantity, unitPrice });
+                });
+
+                // Save each item
+                for (const upd of itemUpdates) {
+                    await apiFetch(`/bids/${currentBidId}/items/${upd.itemId}`, {
+                        method: 'PUT',
+                        body: JSON.stringify({ description: upd.description, unit: upd.unit, quantity: upd.quantity, unitPrice: upd.unitPrice })
+                    }).catch(() => {});
+                }
+
+                // Save bid metadata
+                const discount = parseFloat(document.getElementById('oe-discount').value) || 0;
+                await apiFetch(`/bids/${currentBidId}`, { method: 'PUT', body: JSON.stringify({
+                    status: document.getElementById('oe-status').value,
+                    notes: '',
+                    internalNotes: document.getElementById('oe-internal-notes').value,
+                    technicalProposal: {
+                        ...(currentBidData.technicalProposal || {}),
+                        methodology: document.getElementById('oe-methodology').value
+                    },
+                    commercialOffer: {
+                        ...(currentBidData.commercialOffer || {}),
+                        discount,
+                        paymentTerms: document.getElementById('oe-payment').value,
+                        validityDays: parseInt(document.getElementById('oe-validity').value) || 60
+                    },
+                    complianceMatrix: currentBidData.complianceMatrix || []
+                })});
+
+                // Recalculate pricing from line items
+                await apiFetch(`/bids/${currentBidId}/calculate`, {
+                    method: 'POST', body: JSON.stringify({ discount })
+                });
+
+                // Reload bid data
+                currentBidData = await apiFetch(`/bids/${currentBidId}`);
+                renderOeItems(currentBidData.lineItems || []);
+                updateOeTotals();
+                showToast('Cotizacion guardada', 'success');
+            } catch(e) {
+                showToast('Error guardando cotizacion', 'error');
+            } finally {
+                if (btn) { btn.disabled = false; btn.textContent = 'Guardar'; }
+            }
+        }
+
+        async function printOffer() {
+            if (!currentBidId || !currentBidData) return;
+            await saveOffer();
+
+            const bid = currentBidData;
+            const tender = tendersCache.find(t => t.id === bid.tenderId);
+            const config = await apiFetch('/config').catch(() => ({ company: { name: 'Mi Empresa', taxId: '' } }));
+            const items = bid.lineItems || [];
+            const co = bid.commercialOffer || {};
+            const fmt = n => '$' + (Math.round(n || 0)).toLocaleString('es-AR');
+
+            const itemRows = items.map((it, i) => `
+                <tr>
+                    <td style="text-align:center">${i+1}</td>
+                    <td>${escHtml(it.description)}</td>
+                    <td style="text-align:center">${escHtml(it.unit)}</td>
+                    <td style="text-align:right">${it.quantity.toLocaleString('es-AR')}</td>
+                    <td style="text-align:right">${fmt(it.unitPrice)}</td>
+                    <td style="text-align:right"><strong>${fmt(it.subtotal)}</strong></td>
+                </tr>`).join('');
+
+            const reqRows = (bid.complianceMatrix || []).map(m => `
+                <tr>
+                    <td>${escHtml(m.description)}</td>
+                    <td style="text-align:center">${m.compliant ? '✓' : '—'}</td>
+                    <td style="font-size:11px">${escHtml(m.response || '')}</td>
+                </tr>`).join('');
+
+            const printHtml = `
+                <div style="font-family: Arial, sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; font-size: 12px;">
+                    <!-- Header -->
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:20px; padding-bottom:15px; border-bottom:2px solid #333;">
+                        <div>
+                            <h2 style="margin:0 0 4px 0; font-size:18px;">${escHtml(config.company?.name || 'Mi Empresa')}</h2>
+                            <p style="margin:2px 0; color:#555;">CUIT: ${escHtml(config.company?.taxId || '')}</p>
+                        </div>
+                        <div style="text-align:right;">
+                            <h3 style="margin:0 0 4px 0; font-size:16px; color:#1a56db;">OFERTA DE COTIZACION</h3>
+                            <p style="margin:2px 0; color:#555;">N° ${escHtml(bid.id)}</p>
+                            <p style="margin:2px 0; color:#555;">Fecha: ${new Date().toLocaleDateString('es-AR')}</p>
+                        </div>
+                    </div>
+
+                    <!-- Tender info -->
+                    ${tender ? `<table style="width:100%; border:1px solid #ddd; border-collapse:collapse; margin-bottom:16px;">
+                        <tr style="background:#f5f5f5;"><th colspan="4" style="padding:8px; text-align:left; font-size:13px;">DATOS DE LA LICITACION</th></tr>
+                        <tr><td style="padding:6px 8px; color:#555; width:120px;">Numero:</td><td style="padding:6px 8px;"><strong>${escHtml(tender.number)}</strong></td>
+                            <td style="padding:6px 8px; color:#555; width:120px;">Organismo:</td><td style="padding:6px 8px;">${escHtml(tender.agency)}</td></tr>
+                        <tr style="background:#fafafa;"><td style="padding:6px 8px; color:#555;">Descripcion:</td><td colspan="3" style="padding:6px 8px;">${escHtml(tender.title)}</td></tr>
+                        <tr><td style="padding:6px 8px; color:#555;">Cierre:</td><td style="padding:6px 8px;">${new Date(tender.closingDate).toLocaleDateString('es-AR')}</td>
+                            <td style="padding:6px 8px; color:#555;">Presupuesto:</td><td style="padding:6px 8px;">${fmt(tender.budget)} ${tender.currency}</td></tr>
+                    </table>` : ''}
+
+                    <!-- Line items -->
+                    <table style="width:100%; border-collapse:collapse; margin-bottom:16px;">
+                        <thead>
+                            <tr style="background:#1a56db; color:#fff;">
+                                <th style="padding:8px; width:35px;">N°</th>
+                                <th style="padding:8px; text-align:left;">Descripcion</th>
+                                <th style="padding:8px; width:60px;">Unid.</th>
+                                <th style="padding:8px; width:70px; text-align:right;">Cant.</th>
+                                <th style="padding:8px; width:110px; text-align:right;">P. Unitario</th>
+                                <th style="padding:8px; width:110px; text-align:right;">Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${itemRows || '<tr><td colspan="6" style="padding:12px; text-align:center; color:#888;">(Sin renglones)</td></tr>'}
+                        </tbody>
+                    </table>
+
+                    <!-- Totals -->
+                    <div style="display:flex; justify-content:flex-end; margin-bottom:20px;">
+                        <table style="border-collapse:collapse; min-width:280px; border:1px solid #ddd;">
+                            <tr><td style="padding:6px 16px; color:#555;">Subtotal s/IVA:</td><td style="padding:6px 16px; text-align:right;">${fmt(co.basePrice || 0)}</td></tr>
+                            ${co.discount > 0 ? `<tr><td style="padding:6px 16px; color:#555;">Descuento (${co.discount}%):</td><td style="padding:6px 16px; text-align:right;">−${fmt((co.basePrice||0) * co.discount / 100)}</td></tr>` : ''}
+                            <tr><td style="padding:6px 16px; color:#555;">Neto:</td><td style="padding:6px 16px; text-align:right;">${fmt(co.subtotal || 0)}</td></tr>
+                            <tr><td style="padding:6px 16px; color:#555;">IVA (${co.taxRate || 21}%):</td><td style="padding:6px 16px; text-align:right;">${fmt(co.taxAmount || 0)}</td></tr>
+                            <tr style="background:#1a56db; color:#fff; font-size:14px; font-weight:bold;">
+                                <td style="padding:8px 16px;">TOTAL:</td><td style="padding:8px 16px; text-align:right;">${fmt(co.total || 0)} ${co.currency || 'ARS'}</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <!-- Conditions -->
+                    <table style="width:100%; border:1px solid #ddd; border-collapse:collapse; margin-bottom:16px;">
+                        <tr style="background:#f5f5f5;"><th colspan="4" style="padding:8px; text-align:left;">CONDICIONES DE LA OFERTA</th></tr>
+                        <tr>
+                            <td style="padding:6px 8px; color:#555; width:140px;">Validez:</td>
+                            <td style="padding:6px 8px;">${co.validityDays || 60} dias</td>
+                            <td style="padding:6px 8px; color:#555; width:140px;">Forma de pago:</td>
+                            <td style="padding:6px 8px;">${escHtml(co.paymentTerms || '—')}</td>
+                        </tr>
+                    </table>
+
+                    ${bid.technicalProposal?.methodology ? `
+                    <div style="margin-bottom:16px; padding:12px; border:1px solid #ddd; border-radius:4px;">
+                        <strong>Propuesta Tecnica / Metodologia:</strong>
+                        <p style="margin:8px 0 0 0; white-space:pre-wrap;">${escHtml(bid.technicalProposal.methodology)}</p>
+                    </div>` : ''}
+
+                    ${reqRows ? `<table style="width:100%; border-collapse:collapse; margin-bottom:16px; font-size:11px;">
+                        <tr style="background:#f5f5f5;"><th colspan="3" style="padding:8px; text-align:left;">CUMPLIMIENTO DE REQUISITOS</th></tr>
+                        <tr style="background:#eee;"><th style="padding:6px 8px; text-align:left;">Requisito</th><th style="padding:6px 8px; width:50px;">Cumple</th><th style="padding:6px 8px; text-align:left;">Referencia</th></tr>
+                        ${reqRows}
+                    </table>` : ''}
+
+                    <!-- Signature -->
+                    <div style="margin-top:40px; display:flex; justify-content:space-between;">
+                        <div style="border-top:1px solid #333; width:200px; padding-top:8px; text-align:center; font-size:11px; color:#555;">Firma y Aclaracion</div>
+                        <div style="border-top:1px solid #333; width:200px; padding-top:8px; text-align:center; font-size:11px; color:#555;">Sello de la Empresa</div>
+                    </div>
+                    <p style="margin-top:8px; font-size:10px; color:#888; text-align:center;">Generado con cotizAR · licitometro.ar</p>
+                </div>`;
+
+            const printArea = document.getElementById('offer-print-area');
+            printArea.innerHTML = printHtml;
+
+            // Swap print styles
+            const style = document.getElementById('print-style');
+            style.textContent = `
+                @media print {
+                    body > *:not(#offer-print-area) { display: none !important; }
+                    #offer-print-area { display: block !important; }
+                    @page { margin: 15mm; }
+                }
+                #offer-print-area { display: none; }`;
+
+            window.print();
         }
 
         // === INIT ===

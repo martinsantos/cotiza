@@ -1,4 +1,4 @@
-import { Bid, CommercialOffer, BidAnalysis, RiskItem, GeneratedDocument } from '../types/index.js';
+import { Bid, LineItem, CommercialOffer, BidAnalysis, RiskItem, GeneratedDocument } from '../types/index.js';
 import { v4 as uuidv4 } from 'uuid';
 import { tenderService } from './tender.service.js';
 import { getConfig } from '../config/index.js';
@@ -64,6 +64,9 @@ export class BidService {
       tenderId,
       companyId: config.company.id,
       status: 'draft',
+      lineItems: [],
+      notes: '',
+      internalNotes: '',
       technicalProposal: {
         methodology: '',
         workPlan: [],
@@ -157,13 +160,84 @@ export class BidService {
     return deleted;
   }
 
+  // ── Line item CRUD ───────────────────────────────────────────────────────
+
+  async addLineItem(bidId: string, item: Omit<LineItem, 'id' | 'subtotal'>): Promise<Bid> {
+    const bid = await this.getById(bidId);
+    if (!bid) throw new Error(`Bid ${bidId} not found`);
+
+    const newItem: LineItem = {
+      id: uuidv4().slice(0, 8),
+      description: item.description,
+      unit: item.unit || 'un',
+      quantity: Number(item.quantity) || 0,
+      unitPrice: Number(item.unitPrice) || 0,
+      subtotal: (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0),
+      notes: item.notes
+    };
+
+    const lineItems = [...(bid.lineItems || []), newItem];
+    const updated = await this.update(bidId, { lineItems });
+    await this.recalculateFromItems(bidId);
+    return (await this.getById(bidId))!;
+  }
+
+  async updateLineItem(bidId: string, itemId: string, patch: Partial<Omit<LineItem, 'id' | 'subtotal'>>): Promise<Bid> {
+    const bid = await this.getById(bidId);
+    if (!bid) throw new Error(`Bid ${bidId} not found`);
+
+    const lineItems = (bid.lineItems || []).map(item => {
+      if (item.id !== itemId) return item;
+      const qty = patch.quantity !== undefined ? Number(patch.quantity) : item.quantity;
+      const price = patch.unitPrice !== undefined ? Number(patch.unitPrice) : item.unitPrice;
+      return { ...item, ...patch, quantity: qty, unitPrice: price, subtotal: qty * price };
+    });
+
+    await this.update(bidId, { lineItems });
+    await this.recalculateFromItems(bidId);
+    return (await this.getById(bidId))!;
+  }
+
+  async deleteLineItem(bidId: string, itemId: string): Promise<Bid> {
+    const bid = await this.getById(bidId);
+    if (!bid) throw new Error(`Bid ${bidId} not found`);
+
+    const lineItems = (bid.lineItems || []).filter(item => item.id !== itemId);
+    await this.update(bidId, { lineItems });
+    await this.recalculateFromItems(bidId);
+    return (await this.getById(bidId))!;
+  }
+
+  // Recalculate commercialOffer totals from line items
+  private async recalculateFromItems(bidId: string): Promise<void> {
+    const bid = await this.getById(bidId);
+    if (!bid) return;
+    const config = getConfig();
+    const basePrice = (bid.lineItems || []).reduce((sum, item) => sum + item.subtotal, 0);
+    const discount = bid.commercialOffer.discount || 0;
+    const discountedSubtotal = basePrice * (1 - discount / 100);
+    const taxRate = bid.commercialOffer.taxRate || config.defaults.taxRate;
+    const taxAmount = discountedSubtotal * (taxRate / 100);
+    const commercialOffer: CommercialOffer = {
+      ...bid.commercialOffer,
+      basePrice,
+      subtotal: discountedSubtotal,
+      taxRate,
+      taxAmount,
+      total: discountedSubtotal + taxAmount
+    };
+    await this.update(bidId, { commercialOffer });
+  }
+
   async calculatePricing(bidId: string, costs: {
-    labor: number;
-    materials: number;
-    equipment: number;
-    overhead: number;
-    other: number;
+    labor?: number;
+    materials?: number;
+    equipment?: number;
+    overhead?: number;
+    other?: number;
     discount?: number;
+    // Also accept direct total override
+    basePrice?: number;
   }): Promise<CommercialOffer> {
     const bid = await this.getById(bidId);
     if (!bid) {
@@ -171,21 +245,31 @@ export class BidService {
     }
 
     const config = getConfig();
-    const subtotal = costs.labor + costs.materials + costs.equipment + costs.overhead + costs.other;
-    const discount = costs.discount || 0;
-    const discountedSubtotal = subtotal * (1 - discount / 100);
-    const taxAmount = discountedSubtotal * (config.defaults.taxRate / 100);
+
+    // If line items exist, use their total as base; otherwise sum cost breakdown
+    let basePrice: number;
+    if ((bid.lineItems || []).length > 0) {
+      basePrice = (bid.lineItems || []).reduce((sum, item) => sum + item.subtotal, 0);
+    } else {
+      basePrice = (costs.labor || 0) + (costs.materials || 0) + (costs.equipment || 0)
+        + (costs.overhead || 0) + (costs.other || 0);
+    }
+
+    const discount = costs.discount !== undefined ? costs.discount : (bid.commercialOffer.discount || 0);
+    const discountedSubtotal = basePrice * (1 - discount / 100);
+    const taxRate = config.defaults.taxRate;
+    const taxAmount = discountedSubtotal * (taxRate / 100);
     const total = discountedSubtotal + taxAmount;
 
     const commercialOffer: CommercialOffer = {
-      basePrice: subtotal,
+      basePrice,
       discount,
       subtotal: discountedSubtotal,
-      taxRate: config.defaults.taxRate,
+      taxRate,
       taxAmount,
       total,
       currency: config.defaults.currency,
-      paymentTerms: '',
+      paymentTerms: bid.commercialOffer.paymentTerms || '',
       validityDays: bid.commercialOffer.validityDays
     };
 
