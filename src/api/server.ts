@@ -115,6 +115,21 @@ router.get('/api/tenders/meta/regions', async (_req: Request, res: Response) => 
   }
 });
 
+// Upsert tender (create or update — used for single imports from LICITOMETRO)
+// MUST be before :id route
+router.post('/api/tenders', async (req: Request, res: Response) => {
+  try {
+    const data = req.body as Partial<Tender>;
+    const existing = data.id ? await tenderService.getById(data.id) : null;
+    const tender = existing
+      ? await tenderService.update(data.id!, data)
+      : await tenderService.create(data);
+    res.json(tender);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to save tender' });
+  }
+});
+
 // Favorites — MUST be before :id route
 router.get('/api/tenders/favorites', async (_req: Request, res: Response) => {
   try {

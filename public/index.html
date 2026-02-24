@@ -219,14 +219,37 @@
         .btn-fav { background: none; border: none; cursor: pointer; font-size: 16px; padding: 2px 6px; line-height: 1; color: #ccc; transition: color 0.15s; }
         .btn-fav:hover, .btn-fav.active { color: #f59e0b; }
 
+        /* Hamburger */
+        .hamburger { display: none; background: none; border: none; cursor: pointer; padding: 6px 10px; font-size: 22px; color: var(--text); line-height: 1; margin-right: 6px; border-radius: 4px; }
+        .hamburger:hover { background: #f0f0f0; }
+        .sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 99; }
+        .sidebar-overlay.active { display: block; }
+
+        /* Tables always scrollable on mobile */
+        .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        @media (max-width: 900px) {
+            .card { overflow-x: auto; }
+        }
+
         /* Responsive */
-        @media (max-width: 768px) {
-            .sidebar { width: 0; overflow: hidden; }
-            .sidebar.open { width: 260px; }
+        @media (max-width: 900px) {
+            .hamburger { display: inline-block; }
+            .sidebar { position: fixed; transform: translateX(-280px); transition: transform 0.22s ease; width: 260px; z-index: 100; }
+            .sidebar.open { transform: translateX(0); box-shadow: 4px 0 20px rgba(0,0,0,0.2); }
             .main { margin-left: 0; }
+            .topbar { padding: 12px 15px; }
+            .content { padding: 12px 15px; }
+            .card { padding: 14px; }
             .grid-2, .grid-3 { grid-template-columns: 1fr; }
-            .detail-panel { width: 100%; }
+            .detail-panel { width: 100%; left: 0; }
             .stats-grid { grid-template-columns: repeat(2, 1fr); }
+            .context-bar { padding: 8px 15px; flex-wrap: wrap; gap: 8px; }
+            .form-row { grid-template-columns: 1fr; }
+        }
+        @media (max-width: 480px) {
+            .stats-grid { grid-template-columns: 1fr 1fr; }
+            .topbar-actions .btn-outline { display: none; }
+            .btn-lg { padding: 10px 16px; font-size: 14px; }
         }
     </style>
 </head>
@@ -285,10 +308,16 @@
             </div>
         </div>
 
+        <!-- Sidebar overlay (mobile) -->
+        <div class="sidebar-overlay" id="sidebar-overlay" onclick="closeSidebar()"></div>
+
         <!-- Main Content -->
         <div class="main">
             <div class="topbar">
-                <h2 id="page-title">Dashboard</h2>
+                <div style="display:flex; align-items:center; gap:4px;">
+                    <button class="hamburger" id="hamburger-btn" aria-label="Menu">&#9776;</button>
+                    <h2 id="page-title">Dashboard</h2>
+                </div>
                 <div class="topbar-actions">
                     <button class="btn btn-outline btn-sm" onclick="syncFromLicitometro()">Sync LICITOMETRO</button>
                     <button class="btn btn-primary btn-sm" onclick="openNewBidModal()">+ Nueva Cotizacion</button>
@@ -520,44 +549,102 @@
                     </div>
                 </div>
 
-                <!-- ====== LICITOMETRO SYNC ====== -->
+                <!-- ====== LICITOMETRO BRIDGE ====== -->
                 <div id="licitometro" class="section">
-                    <div class="card">
-                        <div class="card-title">Sincronizacion con LICITOMETRO.AR</div>
-                        <p style="color: var(--text-light); margin: 10px 0 20px; font-size: 14px;">
-                            Sincroniza las licitaciones desde www.licitometro.ar para tener acceso a todas las licitaciones argentinas scrapeadas.
-                        </p>
-                        <div id="licitometro-status" style="margin-bottom: 20px;"></div>
+                    <!-- Connection status -->
+                    <div id="licitometro-status" style="margin-bottom:14px;"></div>
 
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label>Jurisdiccion</label>
-                                <select id="sync-jurisdiccion">
-                                    <option value="">Todas</option>
-                                </select>
+                    <!-- Tabs -->
+                    <div class="tabs" id="licitometro-tabs" style="margin-bottom:0;">
+                        <div class="tab active" onclick="switchLicitometroTab('buscar', this)">&#128269; Buscar y traer licitaciones</div>
+                        <div class="tab" onclick="switchLicitometroTab('sync', this)">&#8635; Sincronizar en lote</div>
+                    </div>
+
+                    <!-- Tab: Buscar en LICITOMETRO (live search) -->
+                    <div id="lm-tab-buscar">
+                        <div class="card" style="border-top:none; border-radius:0 0 8px 8px; margin-bottom:12px;">
+                            <p style="font-size:13px; color:var(--text-muted); margin-bottom:12px;">
+                                Busca licitaciones directamente en <strong>LICITOMETRO.AR</strong>, luego importalas con un clic para armar tu cotizacion.
+                            </p>
+                            <!-- Quick buttons -->
+                            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
+                                <button class="btn btn-primary btn-sm" onclick="searchLicitometro('Mendoza')">&#9889; Mendoza Abiertas</button>
+                                <button class="btn btn-primary btn-sm" onclick="searchLicitometro('Nacional')">&#9889; Nacionales Abiertas</button>
+                                <button class="btn btn-outline btn-sm" onclick="searchLicitometro('Buenos Aires')">Buenos Aires</button>
+                                <button class="btn btn-outline btn-sm" onclick="searchLicitometro('Cordoba')">Cordoba</button>
+                                <button class="btn btn-outline btn-sm" onclick="searchLicitometro('Santa Fe')">Santa Fe</button>
                             </div>
-                            <div class="form-group">
-                                <label>Rubro</label>
-                                <select id="sync-rubro">
-                                    <option value="">Todos</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label>Estado</label>
-                                <select id="sync-estado">
-                                    <option value="abierta">Abiertas</option>
-                                    <option value="">Todas</option>
-                                    <option value="cerrada">Cerradas</option>
-                                    <option value="adjudicada">Adjudicadas</option>
-                                </select>
+                            <!-- Search form -->
+                            <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end;">
+                                <div style="flex:2; min-width:140px;">
+                                    <label style="font-size:12px; color:var(--text-muted); display:block; margin-bottom:4px;">Palabra clave</label>
+                                    <input type="text" id="lm-search-q" placeholder="ej: limpieza, obras, informatica..." style="width:100%; padding:8px 12px; border:1px solid var(--border); border-radius:6px; font-size:13px;">
+                                </div>
+                                <div style="flex:1; min-width:130px;">
+                                    <label style="font-size:12px; color:var(--text-muted); display:block; margin-bottom:4px;">Jurisdiccion</label>
+                                    <select id="lm-search-jurisdiccion" style="width:100%; padding:8px; border:1px solid var(--border); border-radius:6px; font-size:13px;">
+                                        <option value="">Todas</option>
+                                        <option value="Mendoza">Mendoza</option>
+                                        <option value="Nacional">Nacional</option>
+                                        <option value="Buenos Aires">Buenos Aires</option>
+                                        <option value="Cordoba">Cordoba</option>
+                                        <option value="Santa Fe">Santa Fe</option>
+                                    </select>
+                                </div>
+                                <div style="flex:0 0 120px;">
+                                    <label style="font-size:12px; color:var(--text-muted); display:block; margin-bottom:4px;">Estado</label>
+                                    <select id="lm-search-estado" style="width:100%; padding:8px; border:1px solid var(--border); border-radius:6px; font-size:13px;">
+                                        <option value="abierta">Abiertas</option>
+                                        <option value="">Todas</option>
+                                        <option value="cerrada">Cerradas</option>
+                                    </select>
+                                </div>
+                                <button class="btn btn-primary" onclick="searchLicitometro()" style="align-self:flex-end;">Buscar</button>
                             </div>
                         </div>
-                        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:8px;">
-                            <button class="btn btn-primary btn-lg" onclick="syncFromLicitometro()" id="sync-btn">Sincronizar Licitaciones</button>
-                            <button class="btn btn-outline" onclick="quickSync('Mendoza')" title="Sync licitaciones abiertas de Mendoza">&#9889; Solo Mendoza</button>
-                            <button class="btn btn-outline" onclick="quickSync('Nacional')" title="Sync licitaciones abiertas nacionales">&#9889; Solo Nacional</button>
+                        <div class="card">
+                            <div id="lm-search-results">
+                                <div class="empty-state">
+                                    <div class="icon">&#128269;</div>
+                                    <p>Use los botones rapidos o el formulario para buscar licitaciones en LICITOMETRO.AR.<br>
+                                    <small>Haga clic en <strong>"Cotizar"</strong> para importar e iniciar una cotizacion, o <strong>"&#11088; Guardar"</strong> para agregar a Mis Favoritas.</small></p>
+                                </div>
+                            </div>
                         </div>
-                        <div id="sync-result" style="margin-top: 20px;"></div>
+                    </div>
+
+                    <!-- Tab: Sync en lote -->
+                    <div id="lm-tab-sync" style="display:none;">
+                        <div class="card" style="border-top:none; border-radius:0 0 8px 8px;">
+                            <p style="color:var(--text-light); font-size:13px; margin-bottom:16px;">
+                                Importa en lote hasta 50 licitaciones segun los filtros. Las licitaciones quedaran guardadas localmente.
+                            </p>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Jurisdiccion</label>
+                                    <select id="sync-jurisdiccion">
+                                        <option value="">Todas</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>Rubro</label>
+                                    <select id="sync-rubro">
+                                        <option value="">Todos</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>Estado</label>
+                                    <select id="sync-estado">
+                                        <option value="abierta">Abiertas</option>
+                                        <option value="">Todas</option>
+                                        <option value="cerrada">Cerradas</option>
+                                        <option value="adjudicada">Adjudicadas</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <button class="btn btn-primary btn-lg" onclick="syncFromLicitometro()" id="sync-btn">Importar Licitaciones (lote)</button>
+                            <div id="sync-result" style="margin-top: 16px;"></div>
+                        </div>
                     </div>
                 </div>
 
@@ -1678,15 +1765,125 @@
             }
         }
 
-        // === LICITOMETRO SYNC ===
+        // === LICITOMETRO BRIDGE ===
+
+        function switchLicitometroTab(tab, el) {
+            document.querySelectorAll('#licitometro-tabs .tab').forEach(t => t.classList.remove('active'));
+            el.classList.add('active');
+            document.getElementById('lm-tab-buscar').style.display = tab === 'buscar' ? '' : 'none';
+            document.getElementById('lm-tab-sync').style.display = tab === 'sync' ? '' : 'none';
+        }
+
+        // Search LICITOMETRO.AR live and show results (does NOT import automatically)
+        async function searchLicitometro(jurisdiccionQuick) {
+            const q = document.getElementById('lm-search-q')?.value?.trim() || '';
+            const jurisdiccion = jurisdiccionQuick || document.getElementById('lm-search-jurisdiccion')?.value || '';
+            const estado = document.getElementById('lm-search-estado')?.value || 'abierta';
+
+            // If quick button pressed, also update the select
+            if (jurisdiccionQuick && document.getElementById('lm-search-jurisdiccion')) {
+                document.getElementById('lm-search-jurisdiccion').value = jurisdiccionQuick;
+            }
+
+            const resultsEl = document.getElementById('lm-search-results');
+            if (!resultsEl) return;
+            resultsEl.innerHTML = '<div class="loading"><div class="spinner"></div>Consultando LICITOMETRO.AR...</div>';
+
+            try {
+                const params = new URLSearchParams({ limit: '40' });
+                if (q) params.set('q', q);
+                if (jurisdiccion) params.set('jurisdiccion', jurisdiccion);
+                if (estado) params.set('estado', estado);
+
+                const result = await apiFetch(`/licitometro/search?${params}`);
+                const tenders = result.tenders || [];
+
+                if (!tenders.length) {
+                    resultsEl.innerHTML = `<div class="empty-state"><p>No se encontraron licitaciones en LICITOMETRO.AR${jurisdiccion ? ' — ' + jurisdiccion : ''}.<br><small>Pruebe otros filtros, o use "Sincronizar en lote" para traer datos mas recientes.</small></p></div>`;
+                    return;
+                }
+
+                const fmt = n => '$' + Math.round(n||0).toLocaleString('es-AR');
+                resultsEl.innerHTML = `
+                    <p style="font-size:12px; color:var(--text-muted); margin-bottom:10px;">
+                        <strong>${tenders.length}</strong> licitaciones desde LICITOMETRO.AR${jurisdiccion ? ' — <strong>' + jurisdiccion + '</strong>' : ''}
+                        &nbsp;·&nbsp; Haga clic en <strong>Cotizar</strong> para importar y crear una cotizacion.
+                    </p>
+                    <table>
+                        <thead><tr>
+                            <th>Numero</th>
+                            <th>Titulo</th>
+                            <th>Organismo</th>
+                            <th>Region</th>
+                            <th>Presupuesto</th>
+                            <th>Cierre</th>
+                            <th style="white-space:nowrap;">Acciones</th>
+                        </tr></thead>
+                        <tbody>${tenders.map(t => {
+                            const isFav = _favoriteIds.has(t.id);
+                            const daysLeft = Math.ceil((new Date(t.closingDate) - new Date()) / 86400000);
+                            const dc = daysLeft <= 3 ? 'var(--danger)' : daysLeft <= 7 ? 'var(--warning)' : 'var(--text-muted)';
+                            const tJson = JSON.stringify(t).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;');
+                            return `<tr>
+                                <td><strong>${escHtml(t.number)}</strong></td>
+                                <td style="max-width:220px;">${escHtml(t.title.substring(0,52))}${t.title.length>52?'…':''}</td>
+                                <td style="font-size:11px; max-width:160px;">${escHtml(t.agency)}</td>
+                                <td><span class="badge badge-abierta" style="font-size:10px;">${escHtml(t.region)}</span></td>
+                                <td style="white-space:nowrap;">${fmt(t.budget)}</td>
+                                <td style="font-size:12px; white-space:nowrap;">
+                                    ${new Date(t.closingDate).toLocaleDateString('es-AR')}
+                                    <br><small style="color:${dc};">${daysLeft>0?daysLeft+'d':daysLeft===0?'HOY':'VENCIDA'}</small>
+                                </td>
+                                <td style="white-space:nowrap;">
+                                    <button class="btn btn-sm btn-primary" onclick="importAndBid(${tJson})">Cotizar</button>
+                                    <button class="btn-fav ${isFav?'active':''}" onclick="importAndStar(${tJson}, this)" title="${isFav?'Quitar de favoritas':'Guardar en favoritas'}">&#11088;</button>
+                                </td>
+                            </tr>`;
+                        }).join('')}</tbody>
+                    </table>`;
+            } catch(e) {
+                resultsEl.innerHTML = '<div class="alert alert-danger">No se pudo conectar con LICITOMETRO.AR. Verifique la conexion o configure la API Key en la pantalla de Configuracion.</div>';
+            }
+        }
+
+        // Import a single tender object into local DB
+        async function importTender(tenderData) {
+            await apiFetch('/tenders', { method: 'POST', body: JSON.stringify(tenderData) });
+            // Update cache
+            const idx = tendersCache.findIndex(t => t.id === tenderData.id);
+            if (idx >= 0) tendersCache[idx] = tenderData;
+            else tendersCache.push(tenderData);
+        }
+
+        // Import + open bid modal
+        async function importAndBid(tenderData) {
+            try {
+                await importTender(tenderData);
+                showToast('Licitacion importada. Creando cotizacion...', 'success');
+                openNewBidModal(tenderData.id);
+            } catch(e) {
+                showToast('Error importando licitacion de LICITOMETRO', 'error');
+            }
+        }
+
+        // Import + mark as favorite + update star button
+        async function importAndStar(tenderData, btnEl) {
+            try {
+                await importTender(tenderData);
+                await toggleFavorite(tenderData.id, btnEl);
+            } catch(e) {
+                showToast('Error guardando en favoritas', 'error');
+            }
+        }
+
         async function loadLicitometroSection() {
             try {
                 const status = await apiFetch('/licitometro/status');
                 document.getElementById('licitometro-status').innerHTML = `
                     <div class="alert ${status.configured ? 'alert-success' : 'alert-warning'}">
-                        <strong>Estado:</strong> ${status.configured ? 'API Key configurada' : 'Sin API Key (configurar LICITOMETRO_API_KEY)'}
-                        <br><strong>URL:</strong> ${status.apiUrl}
-                        <br><strong>Ultima sync:</strong> ${status.lastSync ? new Date(status.lastSync).toLocaleString('es-AR') : 'Nunca'}
+                        <strong>Estado:</strong> ${status.configured ? 'API Key configurada' : 'Sin API Key (configurar LICITOMETRO_API_KEY en el servidor)'}
+                        &nbsp;·&nbsp; <strong>URL:</strong> ${status.apiUrl}
+                        &nbsp;·&nbsp; <strong>Ultima sync:</strong> ${status.lastSync ? new Date(status.lastSync).toLocaleString('es-AR') : 'Nunca'}
                     </div>
                 `;
 
@@ -2597,15 +2794,32 @@
             window.print();
         }
 
-        // === INIT ===
-        // Load favorite IDs in background
-        loadFavoriteIds().catch(() => {});
-        // Restore context bar if context was persisted in sessionStorage
-        if (contextTenderId) {
-            const initialSection = window.location.hash.replace('#', '') || 'dashboard';
-            updateContextBar(initialSection);
+        // === MOBILE SIDEBAR ===
+        function closeSidebar() {
+            document.querySelector('.sidebar').classList.remove('open');
+            document.getElementById('sidebar-overlay').classList.remove('active');
         }
-        // Respect hash on initial load (e.g. /cotizar#tenders)
+
+        document.getElementById('hamburger-btn')?.addEventListener('click', () => {
+            const sidebar = document.querySelector('.sidebar');
+            const overlay = document.getElementById('sidebar-overlay');
+            sidebar.classList.toggle('open');
+            overlay.classList.toggle('active', sidebar.classList.contains('open'));
+        });
+
+        // Close sidebar when a nav item is clicked on mobile
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.addEventListener('click', () => {
+                if (window.innerWidth <= 900) closeSidebar();
+            });
+        });
+
+        // === INIT ===
+        loadFavoriteIds().catch(() => {});
+        if (contextTenderId) {
+            const s0 = window.location.hash.replace('#', '') || 'dashboard';
+            updateContextBar(s0);
+        }
         const initialSection = window.location.hash.replace('#', '') || 'dashboard';
         showSection(initialSection);
     </script>
