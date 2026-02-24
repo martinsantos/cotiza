@@ -85,6 +85,16 @@ router.get('/api/tenders/search', async (req: Request, res: Response) => {
   }
 });
 
+// Tender count (real vs sample)
+router.get('/api/tenders/meta/count', async (_req: Request, res: Response) => {
+  try {
+    const count = await tenderService.count();
+    res.json(count);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to get count' });
+  }
+});
+
 // Get tender categories (MUST be before :id route)
 router.get('/api/tenders/meta/categories', async (_req: Request, res: Response) => {
   try {
@@ -530,13 +540,18 @@ export function startServer(port?: number): void {
       console.log(`BASE_PATH: ${BASE_PATH}`);
     }
 
-    // Auto-sync en segundo plano al arrancar (no bloquea el servidor)
-    setTimeout(() => {
-      console.log('[startup] Iniciando sync de licitaciones desde LICITOMETRO.AR...');
+    // Auto-sync al arrancar (no bloquea el servidor)
+    const runSync = (label: string) => {
       licitometroService.sync({ estado: 'abierta', limit: 100 })
-        .then(result => console.log(`[startup] Sync licitaciones: ${result.message}`))
-        .catch(err => console.warn('[startup] Sync licitaciones falló:', err?.message));
-    }, 3000); // esperar 3s para que el servidor esté completamente listo
+        .then(result => console.log(`[${label}] Sync: ${result.message}`))
+        .catch(err => console.warn(`[${label}] Sync falló:`, err?.message));
+    };
+
+    setTimeout(() => runSync('startup'), 3000);
+
+    // Re-sync automático cada hora para mantener datos frescos
+    const SYNC_INTERVAL_MS = 60 * 60 * 1000;
+    setInterval(() => runSync('auto-sync'), SYNC_INTERVAL_MS);
   });
 }
 

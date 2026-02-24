@@ -57,6 +57,7 @@ export class TenderService {
 
   private loadSampleData(): void {
     const now = new Date();
+    const in15d = new Date(now.getTime() + 15 * 86400000).toISOString();
     const in30d = new Date(now.getTime() + 30 * 86400000).toISOString();
     const in45d = new Date(now.getTime() + 45 * 86400000).toISOString();
     const in60d = new Date(now.getTime() + 60 * 86400000).toISOString();
@@ -66,7 +67,7 @@ export class TenderService {
         id: 'sample-001',
         number: 'EJ-001',
         title: 'Ejemplo: Servicio de Limpieza Edificios Públicos',
-        description: 'Datos de ejemplo. Use "Sync LICITOMETRO" para cargar licitaciones reales de licitometro.ar.',
+        description: 'Datos de ejemplo con fechas actuales. Use "Sync LICITOMETRO" para cargar licitaciones reales de licitometro.ar.',
         agency: 'Organismo Ejemplo — Mendoza',
         region: 'Mendoza',
         category: 'Servicios',
@@ -86,7 +87,7 @@ export class TenderService {
         id: 'sample-002',
         number: 'EJ-002',
         title: 'Ejemplo: Suministro de Equipamiento Informático',
-        description: 'Datos de ejemplo. Use "Sync LICITOMETRO" para cargar licitaciones reales de licitometro.ar.',
+        description: 'Datos de ejemplo con fechas actuales. Use "Sync LICITOMETRO" para cargar licitaciones reales de licitometro.ar.',
         agency: 'Ministerio Ejemplo',
         region: 'Mendoza',
         category: 'Suministros',
@@ -106,7 +107,7 @@ export class TenderService {
         id: 'sample-003',
         number: 'EJ-003',
         title: 'Ejemplo: Obra de Infraestructura Vial',
-        description: 'Datos de ejemplo. Use "Sync LICITOMETRO" para cargar licitaciones reales de licitometro.ar.',
+        description: 'Datos de ejemplo con fechas actuales. Use "Sync LICITOMETRO" para cargar licitaciones reales de licitometro.ar.',
         agency: 'Dirección Provincial de Vialidad',
         region: 'Mendoza',
         category: 'Obras',
@@ -121,6 +122,26 @@ export class TenderService {
         ],
         documents: [],
         terms: { deliveryTime: '18 meses', placeOfDelivery: 'Provincia de Mendoza', validityOfOffer: 90 }
+      },
+      {
+        id: 'sample-004',
+        number: 'EJ-004',
+        title: 'Ejemplo: Consultoría en Gestión Ambiental',
+        description: 'Datos de ejemplo con fechas actuales. Use "Sync LICITOMETRO" para cargar licitaciones reales de licitometro.ar.',
+        agency: 'Secretaría de Ambiente Ejemplo',
+        region: 'Buenos Aires',
+        category: 'Consultoria',
+        status: 'abierta',
+        openingDate: now.toISOString(),
+        closingDate: in15d,
+        budget: 8500000,
+        currency: 'ARS',
+        requirements: [
+          { id: 'r7', type: 'technical', description: 'Matriculación profesional vigente', mandatory: true, weight: 35 },
+          { id: 'r8', type: 'legal', description: 'Seguro de responsabilidad civil', mandatory: true, weight: 20 }
+        ],
+        documents: [],
+        terms: { deliveryTime: '6 meses', placeOfDelivery: 'Buenos Aires', validityOfOffer: 45 }
       }
     ];
 
@@ -148,6 +169,20 @@ export class TenderService {
     return this.tenders.get(id) || null;
   }
 
+  // ── Auto-expirar licitaciones cuya fecha de cierre ya pasó ──────────────
+  private autoExpire(): void {
+    const now = new Date();
+    for (const [id, tender] of this.tenders.entries()) {
+      if (tender.status === 'abierta' && new Date(tender.closingDate) < now) {
+        const updated = { ...tender, status: 'cerrada' as const };
+        this.tenders.set(id, updated);
+        if (!id.startsWith('sample-')) {
+          this.saveToDisk(updated).catch(() => {});
+        }
+      }
+    }
+  }
+
   async list(filters?: {
     status?: string;
     category?: string;
@@ -155,6 +190,7 @@ export class TenderService {
     agency?: string;
   }): Promise<Tender[]> {
     await this.loadFromDisk();
+    this.autoExpire();
     let results = Array.from(this.tenders.values());
 
     if (filters) {
@@ -164,8 +200,12 @@ export class TenderService {
       if (filters.agency) results = results.filter(t => t.agency.toLowerCase().includes(filters.agency!.toLowerCase()));
     }
 
-    // Más próximas a vencer primero
-    results.sort((a, b) => new Date(a.closingDate).getTime() - new Date(b.closingDate).getTime());
+    // Más próximas a vencer primero (abiertas al frente, luego por fecha)
+    results.sort((a, b) => {
+      if (a.status === 'abierta' && b.status !== 'abierta') return -1;
+      if (a.status !== 'abierta' && b.status === 'abierta') return 1;
+      return new Date(a.closingDate).getTime() - new Date(b.closingDate).getTime();
+    });
     return results;
   }
 
