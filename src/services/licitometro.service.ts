@@ -184,8 +184,9 @@ export class LicitometroService {
         }
       });
 
-      const tenders = response.data.data.map(lt => this.mapTenderFromLicitometro(lt));
-      return { tenders, total: response.data.total };
+      const rawData = response.data?.data ?? [];
+      const tenders = rawData.map(lt => this.mapTenderFromLicitometro(lt));
+      return { tenders, total: response.data?.total ?? 0 };
     } catch (error) {
       console.error('Error buscando en LICITOMETRO:', error);
       return { tenders: [], total: 0 };
