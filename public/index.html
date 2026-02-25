@@ -241,6 +241,28 @@
 
         /* Jurisdiction tag */
         .jurisdiction-tag { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; background: #e8f4fd; color: #0c5460; margin-bottom: 10px; }
+
+        /* Mobile card layout for tables */
+        .table-desktop-only { display: block; overflow-x: auto; }
+        .cards-mobile-only { display: none; }
+
+        .tender-card { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; cursor: pointer; background: #fff; transition: box-shadow 0.15s; }
+        .tender-card:last-child { margin-bottom: 0; }
+        .tender-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.09); }
+        .tender-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; gap: 8px; }
+        .tender-card-number { font-size: 11px; color: var(--text-muted); font-weight: 700; letter-spacing: 0.3px; }
+        .tender-card-title { font-size: 14px; font-weight: 500; color: var(--text); margin-bottom: 8px; line-height: 1.35; }
+        .tender-card-meta { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-light); margin-bottom: 10px; flex-wrap: wrap; gap: 4px; }
+        .tender-card-meta span { display: flex; align-items: center; gap: 3px; }
+        .tender-card-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+        @media (max-width: 768px) {
+            .table-desktop-only { display: none; }
+            .cards-mobile-only { display: block; }
+            .section { padding: 15px; }
+            .filter-bar { flex-direction: column; }
+            .filter-bar input, .filter-bar select, .filter-bar button { width: 100%; min-width: unset !important; box-sizing: border-box; }
+        }
     </style>
 </head>
 <body>
@@ -342,7 +364,7 @@
 
                 <!-- ====== LICITACIONES ====== -->
                 <div id="tenders" class="section">
-                    <div style="display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap;">
+                    <div class="filter-bar" style="display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap;">
                         <input type="text" id="tender-search" placeholder="Buscar licitaciones..." style="flex: 1; min-width: 200px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px;">
                         <select id="tender-filter-status" style="padding: 9px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px;">
                             <option value="">Todos los estados</option>
@@ -357,23 +379,26 @@
                     </div>
 
                     <div class="card">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Numero</th>
-                                    <th>Titulo</th>
-                                    <th>Organismo</th>
-                                    <th>Categoria</th>
-                                    <th>Presupuesto</th>
-                                    <th>Cierre</th>
-                                    <th>Estado</th>
-                                    <th>Acciones</th>
-                                </tr>
-                            </thead>
-                            <tbody id="tenders-table">
-                                <tr><td colspan="8"><div class="loading"><div class="spinner"></div>Cargando...</div></td></tr>
-                            </tbody>
-                        </table>
+                        <div class="table-desktop-only">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Numero</th>
+                                        <th>Titulo</th>
+                                        <th>Organismo</th>
+                                        <th>Categoria</th>
+                                        <th>Presupuesto</th>
+                                        <th>Cierre</th>
+                                        <th>Estado</th>
+                                        <th>Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tenders-table">
+                                    <tr><td colspan="8"><div class="loading"><div class="spinner"></div>Cargando...</div></td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="cards-mobile-only" id="tenders-cards"><div class="loading"><div class="spinner"></div>Cargando...</div></div>
                     </div>
                 </div>
 
@@ -390,23 +415,26 @@
                             <a href="https://licitometro.ar/licitaciones" target="_blank" style="color: var(--info);">licitometro.ar/licitaciones</a>
                             y aparecerán aquí para cotizar.
                         </p>
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Numero</th>
-                                    <th>Titulo</th>
-                                    <th>Organismo</th>
-                                    <th>Jurisdiccion</th>
-                                    <th>Presupuesto</th>
-                                    <th>Cierre</th>
-                                    <th>Estado</th>
-                                    <th>Acciones</th>
-                                </tr>
-                            </thead>
-                            <tbody id="favoritos-table">
-                                <tr><td colspan="8"><div class="loading"><div class="spinner"></div>Cargando favoritos...</div></td></tr>
-                            </tbody>
-                        </table>
+                        <div class="table-desktop-only">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Numero</th>
+                                        <th>Titulo</th>
+                                        <th>Organismo</th>
+                                        <th>Jurisdiccion</th>
+                                        <th>Presupuesto</th>
+                                        <th>Cierre</th>
+                                        <th>Estado</th>
+                                        <th>Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="favoritos-table">
+                                    <tr><td colspan="8"><div class="loading"><div class="spinner"></div>Cargando favoritos...</div></td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="cards-mobile-only" id="favoritos-cards"><div class="loading"><div class="spinner"></div>Cargando favoritos...</div></div>
                     </div>
                 </div>
 
@@ -1060,10 +1088,14 @@
         }
 
         function renderTendersTable(tenders) {
+            const mobile = window.innerWidth < 768;
+            const empty = '<div class="empty-state"><p>No se encontraron licitaciones</p></div>';
             if (!tenders.length) {
-                document.getElementById('tenders-table').innerHTML = '<tr><td colspan="8"><div class="empty-state"><p>No se encontraron licitaciones</p></div></td></tr>';
+                document.getElementById('tenders-table').innerHTML = '<tr><td colspan="8">' + empty + '</td></tr>';
+                document.getElementById('tenders-cards').innerHTML = empty;
                 return;
             }
+            // Desktop table
             document.getElementById('tenders-table').innerHTML = tenders.map(t => `
                 <tr style="cursor: pointer;" onclick="viewTender('${t.id}')">
                     <td><strong>${t.number}</strong></td>
@@ -1077,6 +1109,23 @@
                         <button class="btn btn-sm btn-primary" onclick="openNewBidModal('${t.id}')">Cotizar</button>
                     </td>
                 </tr>
+            `).join('');
+            // Mobile cards
+            document.getElementById('tenders-cards').innerHTML = tenders.map(t => `
+                <div class="tender-card" onclick="viewTender('${t.id}')">
+                    <div class="tender-card-header">
+                        <span class="tender-card-number">${t.number}</span>
+                        <span class="badge badge-${t.status}">${t.status}</span>
+                    </div>
+                    <div class="tender-card-title">${t.title.substring(0, 100)}${t.title.length > 100 ? '...' : ''}</div>
+                    <div class="tender-card-meta">
+                        <span>${t.agency}</span>
+                        <span>Cierre: ${new Date(t.closingDate).toLocaleDateString('es-AR')}</span>
+                    </div>
+                    <div class="tender-card-actions" onclick="event.stopPropagation();">
+                        <button class="btn btn-sm btn-primary" onclick="openNewBidModal('${t.id}')">Cotizar</button>
+                    </div>
+                </div>
             `).join('');
         }
 
@@ -1110,8 +1159,9 @@
 
         // === FAVORITOS (desde https://licitometro.ar/licitaciones via API de Favoritos de LICITOMETRO) ===
         async function loadFavorites() {
-            document.getElementById('favoritos-table').innerHTML =
-                '<tr><td colspan="8"><div class="loading"><div class="spinner"></div>Obteniendo favoritos de LICITOMETRO.AR...</div></td></tr>';
+            const loadingHtml = '<div class="loading"><div class="spinner"></div>Obteniendo favoritos de LICITOMETRO.AR...</div>';
+            document.getElementById('favoritos-table').innerHTML = `<tr><td colspan="8">${loadingHtml}</td></tr>`;
+            document.getElementById('favoritos-cards').innerHTML = loadingHtml;
             document.getElementById('favoritos-banner').innerHTML = '';
             try {
                 const result = await apiFetch('/licitometro/favorites');
@@ -1128,23 +1178,23 @@
 
                 const tenders = result.tenders || [];
                 if (!tenders.length) {
-                    document.getElementById('favoritos-table').innerHTML =
-                        `<tr><td colspan="8"><div class="empty-state">
-                            <div class="icon">&#9733;</div>
-                            <p>No hay licitaciones favoritas.</p>
-                            <p style="font-size:12px;">Marque favoritas en
-                            <a href="https://licitometro.ar/licitaciones" target="_blank" style="color:var(--info);">licitometro.ar/licitaciones</a></p>
-                        </div></td></tr>`;
+                    const emptyFav = `<div class="empty-state"><div class="icon">&#9733;</div><p>No hay licitaciones favoritas.</p><p style="font-size:12px;">Marque favoritas en <a href="https://licitometro.ar/licitaciones" target="_blank" style="color:var(--info);">licitometro.ar/licitaciones</a></p></div>`;
+                    document.getElementById('favoritos-table').innerHTML = `<tr><td colspan="8">${emptyFav}</td></tr>`;
+                    document.getElementById('favoritos-cards').innerHTML = emptyFav;
                     return;
                 }
 
                 const now = new Date();
-                document.getElementById('favoritos-table').innerHTML = tenders.map(t => {
+                const favRows = tenders.map(t => {
                     const daysLeft = Math.ceil((new Date(t.closingDate) - now) / 86400000);
                     const urgency = daysLeft <= 3 ? 'var(--danger)' : daysLeft <= 7 ? 'var(--warning)' : '';
                     const daysLabel = daysLeft > 0
                         ? `<br><small style="color:${urgency || 'var(--text-muted)'}">${daysLeft}d</small>` : '';
-                    return `
+                    return { t, daysLeft, urgency, daysLabel };
+                });
+
+                // Desktop table rows
+                document.getElementById('favoritos-table').innerHTML = favRows.map(({ t, daysLeft, urgency, daysLabel }) => `
                     <tr style="cursor:pointer;" onclick="viewTender('${t.id}')">
                         <td><strong>${t.number}</strong></td>
                         <td>${t.title.substring(0, 40)}${t.title.length > 40 ? '...' : ''}</td>
@@ -1158,16 +1208,35 @@
                             <button class="btn btn-sm btn-outline" onclick="analyzeLegalFromTender('${t.id}')">Legal</button>
                             <button class="btn btn-sm btn-outline" onclick="analyzeCompetitiveFromTender('${t.id}')">Competencia</button>
                         </td>
-                    </tr>`;
-                }).join('');
+                    </tr>`).join('');
+
+                // Mobile cards
+                document.getElementById('favoritos-cards').innerHTML = favRows.map(({ t, daysLeft, urgency }) => `
+                    <div class="tender-card" onclick="viewTender('${t.id}')">
+                        <div class="tender-card-header">
+                            <span class="tender-card-number">${t.number}</span>
+                            <span class="badge badge-${t.status}">${t.status}</span>
+                        </div>
+                        <div class="tender-card-title">${t.title.substring(0, 100)}${t.title.length > 100 ? '...' : ''}</div>
+                        <div class="tender-card-meta">
+                            <span>${t.agency}</span>
+                            <span style="color:${urgency || 'inherit'}">Cierre: ${new Date(t.closingDate).toLocaleDateString('es-AR')}${daysLeft > 0 ? ` · ${daysLeft}d` : ''}</span>
+                        </div>
+                        <div class="tender-card-actions" onclick="event.stopPropagation();">
+                            <button class="btn btn-sm btn-primary" onclick="openNewBidModal('${t.id}')">Cotizar</button>
+                            <button class="btn btn-sm btn-outline" onclick="analyzeLegalFromTender('${t.id}')">Legal</button>
+                            <button class="btn btn-sm btn-outline" onclick="analyzeCompetitiveFromTender('${t.id}')">Competencia</button>
+                        </div>
+                    </div>`).join('');
 
                 // Actualizar tendersCache para que viewTender() funcione
                 tenders.forEach(t => {
                     if (!tendersCache.find(c => c.id === t.id)) tendersCache.push(t);
                 });
             } catch (error) {
-                document.getElementById('favoritos-table').innerHTML =
-                    '<tr><td colspan="8"><div class="alert alert-danger">Error cargando favoritos. Verifique la conexion con LICITOMETRO.AR.</div></td></tr>';
+                const errHtml = '<div class="alert alert-danger">Error cargando favoritos. Verifique la conexion con LICITOMETRO.AR.</div>';
+                document.getElementById('favoritos-table').innerHTML = `<tr><td colspan="8">${errHtml}</td></tr>`;
+                document.getElementById('favoritos-cards').innerHTML = errHtml;
             }
         }
 
