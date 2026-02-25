@@ -6,7 +6,7 @@ import { tenderService } from './tender.service.js';
 // Fuente: https://github.com/martinsantos/licitometro/blob/main/backend/models/licitacion.py
 interface LicitometroTender {
   id: string;
-  id_licitacion?: string;
+  licitacion_number?: string;   // Identificador del proceso (campo real del modelo)
   title: string;
   objeto?: string;
   organization?: string;
@@ -37,12 +37,14 @@ interface LicitometroSearchParams {
 }
 
 // Respuesta paginada real de GET /api/licitaciones
+// Fuente: backend/routers/licitaciones.py en github.com/martinsantos/licitometro
 interface LicitometroResponse {
   items: LicitometroTender[];
   paginacion: {
-    page: number;
-    size: number;
-    total: number;
+    pagina: number;
+    por_pagina: number;
+    total_items: number;
+    total_paginas: number;
   };
 }
 
@@ -148,7 +150,7 @@ export class LicitometroService {
   private mapTenderFromLicitometro(lt: LicitometroTender): Tender {
     return {
       id: `lm-${lt.id}`,
-      number: lt.id_licitacion || lt.id || '',
+      number: lt.licitacion_number || lt.id || '',
       title: lt.title || '',
       description: lt.objeto || lt.title || '',
       agency: lt.organization || '',
@@ -176,7 +178,7 @@ export class LicitometroService {
       const response = await this.client.get<LicitometroResponse>('/licitaciones', {
         params: {
           q: params.q,
-          status: params.estado,          // estado → status
+          estado: params.estado,          // estado: vigente/vencida/prorrogada/archivada
           category: params.rubro,         // rubro → category
           jurisdiccion: params.jurisdiccion,
           budget_min: params.monto_min,   // monto_min → budget_min
@@ -190,7 +192,7 @@ export class LicitometroService {
 
       const items = response.data.items || [];
       const tenders = items.map(lt => this.mapTenderFromLicitometro(lt));
-      return { tenders, total: response.data.paginacion?.total || tenders.length };
+      return { tenders, total: response.data.paginacion?.total_items || tenders.length };
     } catch (error) {
       console.error('Error buscando en LICITOMETRO:', error);
       return { tenders: [], total: 0 };
