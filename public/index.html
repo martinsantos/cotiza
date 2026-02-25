@@ -216,12 +216,40 @@
             .detail-panel { width: 100%; }
             .stats-grid { grid-template-columns: repeat(2, 1fr); }
         }
+
+        /* Hamburger menu (visible only on mobile) */
+        .hamburger { display: none; background: none; border: none; font-size: 22px; cursor: pointer; padding: 4px 8px; color: var(--text); line-height: 1; }
+        @media (max-width: 768px) {
+            .hamburger { display: inline-flex; align-items: center; }
+            .topbar { padding: 10px 15px; }
+            .topbar h2 { font-size: 16px; }
+            .topbar-actions .btn-text { display: none; }
+        }
+
+        /* Sidebar overlay backdrop on mobile */
+        .sidebar-backdrop { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.4); z-index: 99; }
+        .sidebar-backdrop.active { display: block; }
+
+        /* Star favorite button */
+        .btn-fav { background: none; border: none; font-size: 18px; cursor: pointer; padding: 2px 6px; color: var(--text-muted); line-height: 1; }
+        .btn-fav.active { color: #f5a623; }
+        .btn-fav:hover { color: #f5a623; }
+
+        /* Historical equivalents table */
+        .hist-table th, .hist-table td { font-size: 12px; }
+        .inflation-badge { background: #fff3cd; color: #856404; padding: 2px 6px; border-radius: 4px; font-size: 11px; }
+
+        /* Jurisdiction tag */
+        .jurisdiction-tag { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; background: #e8f4fd; color: #0c5460; margin-bottom: 10px; }
     </style>
 </head>
 <body>
+    <!-- Sidebar backdrop for mobile -->
+    <div class="sidebar-backdrop" id="sidebar-backdrop" onclick="toggleSidebar()"></div>
+
     <div class="app">
         <!-- Sidebar -->
-        <div class="sidebar">
+        <div class="sidebar" id="sidebar">
             <div class="logo">
                 <h1>cotiz<span>AR</span></h1>
                 <span class="subtitle">Armador de Cotizaciones para Licitaciones</span>
@@ -234,6 +262,9 @@
                 </div>
                 <div class="nav-item" data-section="tenders">
                     <span class="icon">&#9776;</span> Licitaciones
+                </div>
+                <div class="nav-item" data-section="favoritos">
+                    <span class="icon">&#9733;</span> Favoritos LICITOMETRO
                 </div>
                 <div class="nav-item" data-section="bids">
                     <span class="icon">&#9998;</span> Cotizaciones
@@ -273,9 +304,10 @@
         <!-- Main Content -->
         <div class="main">
             <div class="topbar">
+                <button class="hamburger" onclick="toggleSidebar()" aria-label="Menu">&#9776;</button>
                 <h2 id="page-title">Dashboard</h2>
                 <div class="topbar-actions">
-                    <button class="btn btn-outline btn-sm" onclick="syncFromLicitometro()">Sync LICITOMETRO</button>
+                    <button class="btn btn-outline btn-sm" onclick="syncFromLicitometro()">Sync</button>
                     <button class="btn btn-primary btn-sm" onclick="openNewBidModal()">+ Nueva Cotizacion</button>
                 </div>
             </div>
@@ -345,6 +377,39 @@
                     </div>
                 </div>
 
+                <!-- ====== FAVORITOS LICITOMETRO ====== -->
+                <div id="favoritos" class="section">
+                    <div id="favoritos-banner" style="margin-bottom: 15px;"></div>
+                    <div class="card">
+                        <div class="card-header">
+                            <span class="card-title">&#9733; Licitaciones Favoritas</span>
+                            <button class="btn btn-sm btn-outline" onclick="loadFavorites()">&#8635; Actualizar</button>
+                        </div>
+                        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 15px;">
+                            Marque licitaciones como favoritas en
+                            <a href="https://licitometro.ar/licitaciones" target="_blank" style="color: var(--info);">licitometro.ar/licitaciones</a>
+                            y aparecerán aquí para cotizar.
+                        </p>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Numero</th>
+                                    <th>Titulo</th>
+                                    <th>Organismo</th>
+                                    <th>Jurisdiccion</th>
+                                    <th>Presupuesto</th>
+                                    <th>Cierre</th>
+                                    <th>Estado</th>
+                                    <th>Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody id="favoritos-table">
+                                <tr><td colspan="8"><div class="loading"><div class="spinner"></div>Cargando favoritos...</div></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
                 <!-- ====== COTIZACIONES ====== -->
                 <div id="bids" class="section">
                     <div class="card">
@@ -407,7 +472,10 @@
                                 <select id="competitive-tender-select"><option value="">Cargando...</option></select>
                             </div>
                         </div>
-                        <button class="btn btn-primary" onclick="analyzeCompetitiveness()">Analizar Competitividad</button>
+                        <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 5px;">
+                            <button class="btn btn-primary" onclick="analyzeCompetitiveness()">Analizar Competitividad</button>
+                            <button class="btn btn-outline" onclick="loadHistoricalEquivalents()">&#128269; Buscar Antecedentes</button>
+                        </div>
                     </div>
                     <div id="competitive-results" style="display: none;">
                         <div class="stats-grid" style="margin-top: 20px;">
@@ -418,6 +486,35 @@
                         <div class="grid-2">
                             <div class="card"><div class="card-title">Benchmarks</div><div id="benchmark-data" style="margin-top: 12px;"></div></div>
                             <div class="card"><div class="card-title">Competidores</div><div id="competitors-data" style="margin-top: 12px;"></div></div>
+                        </div>
+                    </div>
+                    <!-- Antecedentes historicos de LICITOMETRO -->
+                    <div id="historico-results" style="display: none; margin-top: 20px;">
+                        <div class="card">
+                            <div class="card-header">
+                                <span class="card-title">Antecedentes Historicos (LICITOMETRO.AR)</span>
+                                <span id="historico-inflation-tag" class="inflation-badge"></span>
+                            </div>
+                            <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">
+                                Licitaciones equivalentes vencidas en LICITOMETRO.AR. Presupuesto actualizado por inflacion acumulada.
+                            </p>
+                            <div style="overflow-x: auto;">
+                                <table class="hist-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Numero</th>
+                                            <th>Organismo</th>
+                                            <th>Jurisdiccion</th>
+                                            <th>Cierre</th>
+                                            <th>Presup. Original</th>
+                                            <th>Presup. Actualizado</th>
+                                            <th>Factor Inflacion</th>
+                                            <th>Estado</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="historico-table"></tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -434,8 +531,9 @@
                         <button class="btn btn-primary" onclick="analyzeLegal()">Analizar Requisitos Legales</button>
                     </div>
                     <div id="legal-results" style="display: none;">
-                        <div class="grid-2" style="margin-top: 20px;">
-                            <div class="card"><div class="card-title">Marco Legal</div><div id="legal-framework" style="margin-top: 12px;"></div></div>
+                        <div id="legal-jurisdiction-header" style="margin: 15px 0 5px;"></div>
+                        <div class="grid-2" style="margin-top: 10px;">
+                            <div class="card"><div class="card-title">Marco Legal Aplicable</div><div id="legal-framework" style="margin-top: 12px;"></div></div>
                             <div class="card"><div class="card-title">Clausulas Requeridas</div><div id="legal-clauses" style="margin-top: 12px;"></div></div>
                         </div>
                         <div class="card"><div class="card-title">Checklist de Cumplimiento</div><div id="legal-checklist" style="margin-top: 12px;"></div></div>
@@ -687,7 +785,9 @@
 
         // === NAVIGATION (hash-based for /cotizar sub-navigation) ===
         const sectionTitles = {
-            dashboard: 'Dashboard', tenders: 'Licitaciones', bids: 'Cotizaciones',
+            dashboard: 'Dashboard', tenders: 'Licitaciones',
+            favoritos: 'Favoritos — licitometro.ar/licitaciones',
+            bids: 'Cotizaciones',
             market: 'Informacion de Mercado', competitive: 'Analisis de Competitividad',
             legal: 'Cumplimiento Legal', tracking: 'Seguimiento',
             licitometro: 'LICITOMETRO - Sincronizacion',
@@ -719,6 +819,7 @@
             switch(id) {
                 case 'dashboard': loadDashboard(); break;
                 case 'tenders': loadCategoryFilter(); loadTenders(); break;
+                case 'favoritos': loadFavorites(); break;
                 case 'bids': loadBids(); break;
                 case 'market': loadMarket(); break;
                 case 'competitive': loadSelectsFor('competitive-tender-select'); break;
@@ -728,6 +829,21 @@
                 case 'scrapers': loadScraperHealth(); break;
                 case 'config': loadConfig(); break;
             }
+            // Cerrar sidebar en mobile al navegar
+            if (window.innerWidth <= 768) closeSidebar();
+        }
+
+        // === SIDEBAR MOBILE ===
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const backdrop = document.getElementById('sidebar-backdrop');
+            const isOpen = sidebar.classList.toggle('open');
+            backdrop.classList.toggle('active', isOpen);
+        }
+
+        function closeSidebar() {
+            document.getElementById('sidebar').classList.remove('open');
+            document.getElementById('sidebar-backdrop').classList.remove('active');
         }
 
         // Handle hash-based routing (e.g. /cotizar#tenders)
@@ -992,6 +1108,85 @@
             if (tender) openDetailPanel(tender);
         }
 
+        // === FAVORITOS (desde https://licitometro.ar/licitaciones via API de Favoritos de LICITOMETRO) ===
+        async function loadFavorites() {
+            document.getElementById('favoritos-table').innerHTML =
+                '<tr><td colspan="8"><div class="loading"><div class="spinner"></div>Obteniendo favoritos de LICITOMETRO.AR...</div></td></tr>';
+            document.getElementById('favoritos-banner').innerHTML = '';
+            try {
+                const result = await apiFetch('/licitometro/favorites');
+
+                if (result.error) {
+                    document.getElementById('favoritos-banner').innerHTML = `
+                        <div class="alert alert-warning">
+                            <strong>&#9432; Favoritos no disponibles:</strong> ${result.error}
+                            <br><small>Marque licitaciones como favoritas en
+                            <a href="https://licitometro.ar/licitaciones" target="_blank" style="color:var(--info);">licitometro.ar/licitaciones</a>
+                            y configure <code>LICITOMETRO_API_KEY</code> para sincronizar.</small>
+                        </div>`;
+                }
+
+                const tenders = result.tenders || [];
+                if (!tenders.length) {
+                    document.getElementById('favoritos-table').innerHTML =
+                        `<tr><td colspan="8"><div class="empty-state">
+                            <div class="icon">&#9733;</div>
+                            <p>No hay licitaciones favoritas.</p>
+                            <p style="font-size:12px;">Marque favoritas en
+                            <a href="https://licitometro.ar/licitaciones" target="_blank" style="color:var(--info);">licitometro.ar/licitaciones</a></p>
+                        </div></td></tr>`;
+                    return;
+                }
+
+                const now = new Date();
+                document.getElementById('favoritos-table').innerHTML = tenders.map(t => {
+                    const daysLeft = Math.ceil((new Date(t.closingDate) - now) / 86400000);
+                    const urgency = daysLeft <= 3 ? 'var(--danger)' : daysLeft <= 7 ? 'var(--warning)' : '';
+                    const daysLabel = daysLeft > 0
+                        ? `<br><small style="color:${urgency || 'var(--text-muted)'}">${daysLeft}d</small>` : '';
+                    return `
+                    <tr style="cursor:pointer;" onclick="viewTender('${t.id}')">
+                        <td><strong>${t.number}</strong></td>
+                        <td>${t.title.substring(0, 40)}${t.title.length > 40 ? '...' : ''}</td>
+                        <td style="font-size:12px;">${t.agency}</td>
+                        <td style="font-size:12px;">${t.region}</td>
+                        <td>$${t.budget.toLocaleString('es-AR')}</td>
+                        <td style="font-size:12px;">${new Date(t.closingDate).toLocaleDateString('es-AR')}${daysLabel}</td>
+                        <td><span class="badge badge-${t.status}">${t.status}</span></td>
+                        <td onclick="event.stopPropagation();" style="white-space:nowrap;">
+                            <button class="btn btn-sm btn-primary" onclick="openNewBidModal('${t.id}')">Cotizar</button>
+                            <button class="btn btn-sm btn-outline" onclick="analyzeLegalFromTender('${t.id}')">Legal</button>
+                            <button class="btn btn-sm btn-outline" onclick="analyzeCompetitiveFromTender('${t.id}')">Competencia</button>
+                        </td>
+                    </tr>`;
+                }).join('');
+
+                // Actualizar tendersCache para que viewTender() funcione
+                tenders.forEach(t => {
+                    if (!tendersCache.find(c => c.id === t.id)) tendersCache.push(t);
+                });
+            } catch (error) {
+                document.getElementById('favoritos-table').innerHTML =
+                    '<tr><td colspan="8"><div class="alert alert-danger">Error cargando favoritos. Verifique la conexion con LICITOMETRO.AR.</div></td></tr>';
+            }
+        }
+
+        function analyzeLegalFromTender(tenderId) {
+            showSection('legal');
+            setTimeout(() => {
+                document.getElementById('legal-tender-select').value = tenderId;
+                analyzeLegal();
+            }, 400);
+        }
+
+        function analyzeCompetitiveFromTender(tenderId) {
+            showSection('competitive');
+            setTimeout(() => {
+                document.getElementById('competitive-tender-select').value = tenderId;
+                analyzeCompetitiveness();
+            }, 400);
+        }
+
         // === BIDS ===
         async function loadBids() {
             try {
@@ -1215,6 +1410,42 @@
             }
         }
 
+        // === ANTECEDENTES HISTORICOS (competencia) ===
+        async function loadHistoricalEquivalents() {
+            const tenderId = document.getElementById('competitive-tender-select').value;
+            if (!tenderId) { showToast('Seleccione una licitacion primero', 'error'); return; }
+            const resultsEl = document.getElementById('historico-results');
+            const tableEl = document.getElementById('historico-table');
+            resultsEl.style.display = 'block';
+            tableEl.innerHTML = '<tr><td colspan="8"><div class="loading"><div class="spinner"></div>Buscando antecedentes en LICITOMETRO.AR...</div></td></tr>';
+            try {
+                const data = await apiFetch(`/competitive/historico?tenderId=${encodeURIComponent(tenderId)}`);
+                const { equivalents = [], inflationRate = 0 } = data;
+
+                document.getElementById('historico-inflation-tag').textContent =
+                    `Inflacion aplicada: ${inflationRate}% anual acumulado`;
+
+                if (!equivalents.length) {
+                    tableEl.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:20px;">Sin antecedentes equivalentes encontrados en LICITOMETRO.AR</td></tr>';
+                    return;
+                }
+
+                tableEl.innerHTML = equivalents.map(e => `
+                    <tr>
+                        <td><strong style="font-size:11px;">${e.number}</strong></td>
+                        <td style="font-size:11px; max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${e.agency}">${e.agency}</td>
+                        <td style="font-size:11px;">${e.region}</td>
+                        <td style="font-size:11px;">${new Date(e.closingDate).toLocaleDateString('es-AR')}</td>
+                        <td style="font-size:12px;">$${e.budgetOriginal.toLocaleString('es-AR')} <small style="color:var(--text-muted);">${e.currency}</small></td>
+                        <td style="font-size:12px; color: var(--primary); font-weight:600;">$${e.budgetAdjusted.toLocaleString('es-AR')}</td>
+                        <td style="font-size:11px; text-align:center;"><span class="inflation-badge">x${e.inflationFactor}</span></td>
+                        <td><span class="badge badge-${e.status}">${e.status}</span></td>
+                    </tr>`).join('');
+            } catch (error) {
+                tableEl.innerHTML = '<tr><td colspan="8"><div class="alert alert-danger">Error buscando antecedentes</div></td></tr>';
+            }
+        }
+
         // === LEGAL ===
         async function analyzeLegal() {
             const tenderId = document.getElementById('legal-tender-select').value;
@@ -1224,10 +1455,16 @@
                     method: 'POST', body: JSON.stringify({ tenderId })
                 });
                 document.getElementById('legal-results').style.display = 'block';
+                // Mostrar jurisdicción de forma prominente
+                const jurisdiction = analysis.jurisdiction || 'Nacional';
+                document.getElementById('legal-jurisdiction-header').innerHTML = `
+                    <span class="jurisdiction-tag">&#167; Jurisdiccion: ${jurisdiction}</span>
+                    <span style="font-size:12px; color:var(--text-muted); margin-left:8px;">Marco legal determinado segun la jurisdiccion del proceso</span>
+                `;
                 document.getElementById('legal-framework').innerHTML = `
-                    <div class="market-item"><span>Ley</span><strong>${analysis.framework.law}</strong></div>
-                    <div class="market-item"><span>Decreto</span><strong>${analysis.framework.decree}</strong></div>
-                    <div class="market-item"><span>Reglamento</span><strong>${analysis.framework.regulation}</strong></div>
+                    <div class="market-item"><span>Ley aplicable</span><strong>${analysis.framework.law}</strong></div>
+                    <div class="market-item"><span>Decreto / Reglamentacion</span><strong>${analysis.framework.decree}</strong></div>
+                    <div class="market-item"><span>Regimen</span><strong>${analysis.framework.regulation}</strong></div>
                 `;
                 document.getElementById('legal-clauses').innerHTML = analysis.requiredClauses.map(c =>
                     `<div class="market-item"><span>${c}</span><span style="color:var(--success);">&#10003;</span></div>`
