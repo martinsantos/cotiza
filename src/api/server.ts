@@ -32,18 +32,14 @@ router.get('/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Read index.html once and inject BASE_PATH so the frontend knows where the API lives
+// Read index.html on every request so frontend changes are reflected without restart
 import { readFileSync } from 'fs';
-let indexHtml: string | null = null;
 function getIndexHtml(): string {
-  if (!indexHtml) {
-    indexHtml = readFileSync(path.join(publicPath, 'index.html'), 'utf-8');
-  }
-  const injected = indexHtml.replace(
+  const html = readFileSync(path.join(publicPath, 'index.html'), 'utf-8');
+  return html.replace(
     '<!-- __BASE_PATH__ -->',
     `<script>window.__BASE_PATH__ = ${JSON.stringify(BASE_PATH)};</script>`
   );
-  return injected;
 }
 
 router.get('/', (_req: Request, res: Response) => {
@@ -396,6 +392,33 @@ router.post('/api/competitive/price', async (req: Request, res: Response) => {
   }
 });
 
+// Search historical equivalent tenders (expired/awarded/failed) for competition analysis
+router.get('/api/competitive/historico', async (req: Request, res: Response) => {
+  try {
+    const { tenderId } = req.query;
+    if (!tenderId) {
+      return res.status(400).json({ error: 'tenderId required' });
+    }
+    const tender = await tenderService.getById(tenderId as string);
+    if (!tender) {
+      return res.status(404).json({ error: 'Tender not found' });
+    }
+    // Obtener la inflación anual del servicio de mercado para ajuste de precios
+    let annualInflation = 2.1; // fallback: 210% anual (Argentina promedio)
+    try {
+      const inflation = await marketService.getInflation();
+      if (inflation && typeof inflation.annual === 'number' && inflation.annual > 0) {
+        annualInflation = inflation.annual / 100;
+      }
+    } catch { /* usar fallback */ }
+
+    const equivalents = await licitometroService.searchHistoricalEquivalents(tender, annualInflation);
+    res.json({ equivalents, inflationRate: Math.round(annualInflation * 100) });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to search historical equivalents' });
+  }
+});
+
 // Get competitor analysis
 router.get('/api/competitive/competitors/:region', async (req: Request, res: Response) => {
   try {
@@ -471,6 +494,20 @@ router.get('/api/scrapers/configs', async (_req: Request, res: Response) => {
     res.json(configs);
   } catch (error) {
     res.status(500).json({ error: 'Failed to get scraper configs' });
+  }
+});
+
+// Get favorites from LICITOMETRO.AR (requires LICITOMETRO_API_KEY)
+router.get('/api/licitometro/favorites', async (_req: Request, res: Response) => {
+  try {
+    const result = await licitometroService.getFavorites();
+    if (result.error) {
+      // Devuelve igualmente, pero con el mensaje de error para que el frontend lo muestre
+      return res.json({ tenders: result.tenders, error: result.error });
+    }
+    res.json({ tenders: result.tenders });
+  } catch (error) {
+    res.status(500).json({ tenders: [], error: 'Error obteniendo favoritos' });
   }
 });
 

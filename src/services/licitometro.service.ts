@@ -64,6 +64,21 @@ interface SyncResult {
   message: string;
 }
 
+export interface HistoricalEquivalent {
+  id: string;
+  number: string;
+  title: string;
+  agency: string;
+  region: string;
+  category: string;
+  status: string;
+  closingDate: string;
+  budgetOriginal: number;
+  budgetAdjusted: number;
+  currency: string;
+  inflationFactor: number;
+}
+
 export class LicitometroService {
   private client: AxiosInstance;
   private apiUrl: string;
@@ -277,6 +292,126 @@ export class LicitometroService {
         'Tierra del Fuego', 'Nacional'
       ];
     }
+  }
+
+  /**
+   * Obtiene las licitaciones marcadas como favoritas por el usuario en LICITOMETRO.AR.
+   * Requiere LICITOMETRO_API_KEY configurada. Llama a GET /favoritos en la API de LICITOMETRO.
+   */
+  async getFavorites(): Promise<{ tenders: Tender[]; error?: string }> {
+    if (!this.apiKey) {
+      return {
+        tenders: [],
+        error: 'LICITOMETRO_API_KEY no configurada. Configure la variable de entorno para ver sus favoritos.'
+      };
+    }
+    try {
+      // El endpoint de favoritos de LICITOMETRO.AR devuelve los tenders favoritos del usuario autenticado
+      const response = await this.client.get<LicitometroTender[] | { data: LicitometroTender[] }>('/favoritos', {
+        timeout: 15000
+      });
+
+      // El endpoint puede retornar un array directo o un objeto { data: [...] }
+      const raw = response.data;
+      const items: LicitometroTender[] = Array.isArray(raw)
+        ? raw
+        : Array.isArray((raw as { data: LicitometroTender[] }).data)
+          ? (raw as { data: LicitometroTender[] }).data
+          : [];
+
+      const tenders = items.map(lt => this.mapTenderFromLicitometro(lt));
+      return { tenders };
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Error desconocido';
+      console.error('Error obteniendo favoritos de LICITOMETRO:', msg);
+      return {
+        tenders: [],
+        error: `No se pudieron obtener los favoritos de LICITOMETRO.AR: ${msg}`
+      };
+    }
+  }
+
+  /**
+   * Extrae las primeras palabras clave del título de una licitación para buscar equivalentes históricos.
+   */
+  private extractKeywords(title: string): string {
+    // Stopwords comunes para filtrar
+    const stopwords = new Set([
+      'de', 'del', 'la', 'las', 'el', 'los', 'en', 'y', 'o', 'a', 'para',
+      'por', 'con', 'sin', 'un', 'una', 'se', 'al', 'lo', 'que', 'su', 'sus'
+    ]);
+    const words = title
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length > 3 && !stopwords.has(w));
+    // Tomar las primeras 4 palabras clave con más de 4 caracteres
+    return words.slice(0, 4).join(' ');
+  }
+
+  /**
+   * Busca licitaciones históricas equivalentes (vencidas/adjudicadas/desiertas) en LICITOMETRO.AR
+   * para analizar antecedentes de competencia. Ajusta los montos por inflación.
+   * @param tender - tender actual para buscar equivalentes
+   * @param annualInflation - tasa de inflación anual (ej: 2.1 = 210%)
+   */
+  async searchHistoricalEquivalents(
+    tender: { title: string; category: string; agency: string; region: string; budget: number },
+    annualInflation: number = 2.1
+  ): Promise<HistoricalEquivalent[]> {
+    const keywords = this.extractKeywords(tender.title);
+    const results: HistoricalEquivalent[] = [];
+
+    // Buscar en múltiples estados de licitaciones vencidas
+    const estados = ['cerrada', 'adjudicada', 'desierta'];
+    const searches = estados.map(estado =>
+      this.search({
+        q: keywords,
+        estado,
+        rubro: tender.category,
+        limit: 10
+      }).catch(() => ({ tenders: [], total: 0 }))
+    );
+
+    const allResults = await Promise.all(searches);
+    const seen = new Set<string>();
+
+    for (const { tenders } of allResults) {
+      for (const t of tenders) {
+        if (seen.has(t.id)) continue;
+        seen.add(t.id);
+
+        // Calcular ajuste por inflación según antigüedad
+        const closingYear = new Date(t.closingDate).getFullYear();
+        const currentYear = new Date().getFullYear();
+        const yearsElapsed = Math.max(0, currentYear - closingYear);
+        // Factor de ajuste acumulado: (1 + inflacion_anual) ^ años
+        const inflationFactor = Math.pow(1 + annualInflation, yearsElapsed);
+        const budgetAdjusted = Math.round(t.budget * inflationFactor);
+
+        results.push({
+          id: t.id,
+          number: t.number,
+          title: t.title,
+          agency: t.agency,
+          region: t.region,
+          category: t.category,
+          status: t.status,
+          closingDate: t.closingDate,
+          budgetOriginal: t.budget,
+          budgetAdjusted,
+          currency: t.currency,
+          inflationFactor: Math.round(inflationFactor * 100) / 100
+        });
+      }
+    }
+
+    // Ordenar por fecha de cierre descendente (más recientes primero)
+    return results
+      .sort((a, b) => new Date(b.closingDate).getTime() - new Date(a.closingDate).getTime())
+      .slice(0, 15);
   }
 
   async getRubros(): Promise<string[]> {

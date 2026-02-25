@@ -52,12 +52,13 @@ const clauseTemplates: Record<string, LegalClauseTemplate> = {
 export class LegalService {
   async analyzeLegalRequirements(tender: Tender): Promise<{
     framework: LegalFramework;
+    jurisdiction: string;
     requiredClauses: string[];
     complianceChecklist: string[];
     recommendations: string[];
   }> {
     const serviceType = this.detectServiceType(tender);
-    const framework = this.getFramework(serviceType, tender.legalFramework);
+    const framework = this.getFramework(serviceType, tender.region || '', tender.legalFramework);
 
     const requiredClauses = this.getRequiredClauses(serviceType);
     const complianceChecklist = this.generateComplianceChecklist(tender);
@@ -65,6 +66,7 @@ export class LegalService {
 
     return {
       framework,
+      jurisdiction: tender.region || 'Nacional',
       requiredClauses,
       complianceChecklist,
       recommendations
@@ -93,27 +95,146 @@ export class LegalService {
     return 'general';
   }
 
-  private getFramework(serviceType: string, existing?: LegalFramework): LegalFramework {
+  /**
+   * Determina el marco legal aplicable según la JURISDICCIÓN del proceso.
+   * Si la jurisdicción es provincial, retorna la ley provincial correspondiente.
+   * Si es nacional o no se reconoce, retorna la ley nacional según el tipo de servicio.
+   */
+  private getJurisdictionFramework(region: string): LegalFramework | null {
+    const r = region.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+    // Buenos Aires (Provincia)
+    if (r.includes('buenos aires') && !r.includes('caba') && !r.includes('ciudad')) {
+      return {
+        law: 'Ley 13.981 de Contrataciones de la Provincia de Buenos Aires',
+        decree: 'Decreto 59/2019 (reglamentación Ley 13.981)',
+        regulation: 'Reglamento de Compras y Contrataciones de la Provincia de Buenos Aires'
+      };
+    }
+    // CABA / Ciudad Autónoma de Buenos Aires
+    if (r.includes('caba') || r.includes('ciudad autonoma') || r.includes('ciudad de buenos')) {
+      return {
+        law: 'Ley 2.095 de Compras y Contrataciones del GCBA',
+        decree: 'Decreto 95/2014 (reglamentación Ley 2.095)',
+        regulation: 'Régimen de Contrataciones del Gobierno de la Ciudad de Buenos Aires'
+      };
+    }
+    // Mendoza
+    if (r.includes('mendoza')) {
+      return {
+        law: 'Ley 8.706 de Administración Financiera de Mendoza',
+        decree: 'Decreto 7.446/2010 (reglamentación Ley 8.706)',
+        regulation: 'Reglamento de Compras y Contrataciones de la Provincia de Mendoza'
+      };
+    }
+    // Córdoba
+    if (r.includes('cordoba')) {
+      return {
+        law: 'Ley 10.155 de Administración Financiera de Córdoba',
+        decree: 'Decreto 305/2014 (reglamentación Ley 10.155)',
+        regulation: 'Régimen de Contrataciones de la Provincia de Córdoba'
+      };
+    }
+    // Santa Fe
+    if (r.includes('santa fe')) {
+      return {
+        law: 'Ley 12.510 de Administración, Eficiencia e Integridad Pública de Santa Fe',
+        decree: 'Decreto 1.104/2016 (reglamentación Ley 12.510)',
+        regulation: 'Reglamento de Contrataciones de la Provincia de Santa Fe'
+      };
+    }
+    // Chaco
+    if (r.includes('chaco')) {
+      return {
+        law: 'Ley 6.570 de Obras Públicas del Chaco',
+        decree: 'Decreto 1.284/2006',
+        regulation: 'Régimen de Contrataciones de la Provincia del Chaco'
+      };
+    }
+    // Tucumán
+    if (r.includes('tucuman')) {
+      return {
+        law: 'Ley 6.970 de Contrataciones de la Provincia de Tucumán',
+        decree: 'Decreto 313/2016',
+        regulation: 'Reglamento de Contrataciones de Tucumán'
+      };
+    }
+    // Entre Ríos
+    if (r.includes('entre rios')) {
+      return {
+        law: 'Ley 9.203 de Administración Financiera de Entre Ríos',
+        decree: 'Decreto 795/2008',
+        regulation: 'Régimen de Contrataciones de la Provincia de Entre Ríos'
+      };
+    }
+    // Salta
+    if (r.includes('salta')) {
+      return {
+        law: 'Ley 6.838 de Contrataciones de la Provincia de Salta',
+        decree: 'Decreto 1.448/1996',
+        regulation: 'Reglamento de Contrataciones de la Provincia de Salta'
+      };
+    }
+    // Misiones
+    if (r.includes('misiones')) {
+      return {
+        law: 'Ley 4.366 de Contrataciones de la Provincia de Misiones',
+        decree: 'Decreto 2.045/2011',
+        regulation: 'Régimen de Contrataciones de Misiones'
+      };
+    }
+    // Neuquén
+    if (r.includes('neuquen')) {
+      return {
+        law: 'Ley 2.141 de Administración Financiera de Neuquén',
+        decree: 'Decreto 2.758/1995',
+        regulation: 'Reglamento de Contrataciones de la Provincia de Neuquén'
+      };
+    }
+    // Río Negro
+    if (r.includes('rio negro')) {
+      return {
+        law: 'Ley 3.186 de Administración Financiera de Río Negro',
+        decree: 'Decreto 1.135/2012',
+        regulation: 'Régimen de Contrataciones de Río Negro'
+      };
+    }
+    // Organismos Nacionales / Nacional
+    if (r.includes('nacional') || r.includes('nacion')) {
+      return null; // fallback a ley nacional por tipo de servicio
+    }
+    // No reconocida → fallback
+    return null;
+  }
+
+  private getFramework(serviceType: string, region: string, existing?: LegalFramework): LegalFramework {
+    // Primero intentar marco por jurisdicción
+    const jurisdictionFramework = this.getJurisdictionFramework(region);
+    if (jurisdictionFramework) {
+      return jurisdictionFramework;
+    }
+
+    // Fallback a marco nacional por tipo de servicio
     const frameworks: Record<string, LegalFramework> = {
       obra_publica: {
-        law: 'Ley de Obras Públicas',
-        decree: 'Decreto 691/2016',
-        regulation: 'Régimen de Contrataciones de Obras Públicas'
+        law: 'Ley 13.064 de Obras Públicas de la Nación',
+        decree: 'Decreto 691/2016 (actualización precios obras públicas)',
+        regulation: 'Régimen de Contrataciones de Obras Públicas — Decreto 1.023/2001'
       },
       servicio: {
-        law: 'Ley Nacional de Compras y Contrataciones',
-        decree: 'Decreto 1023/2001',
-        regulation: 'Régimen de Contrataciones de la Administración Pública Nacional'
+        law: 'Ley 22.460 / Decreto 1.023/2001 — Régimen de Contrataciones del Estado Nacional',
+        decree: 'Decreto 1.030/2016 (reglamentación)',
+        regulation: 'Régimen de Contrataciones de la Administración Nacional (CONTRAT.AR)'
       },
       suministro: {
-        law: 'Ley de Compras Electrónicas',
-        decree: 'Decreto 1149/2007',
-        regulation: 'Sistema Electrónico de Contrataciones'
+        law: 'Decreto 1.023/2001 — Régimen de Contrataciones del Estado Nacional',
+        decree: 'Decreto 1.030/2016 y Disposición ONC 62/2016',
+        regulation: 'CONTRAT.AR — Sistema Electrónico de Contrataciones del Estado'
       },
       general: {
-        law: 'Ley Nacional de Compras y Contrataciones',
-        decree: 'Decreto 1023/2001',
-        regulation: 'Régimen General de Contrataciones'
+        law: 'Decreto 1.023/2001 — Régimen de Contrataciones del Estado Nacional',
+        decree: 'Decreto 1.030/2016 (reglamentación)',
+        regulation: 'CONTRAT.AR — Régimen General de Contrataciones'
       }
     };
 

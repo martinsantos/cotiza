@@ -8,17 +8,28 @@ services:
     restart: unless-stopped
     ports:
       - "3001:3000"
+    # Variables sensibles (LICITOMETRO_API_KEY, etc.) se leen del archivo .env en el mismo directorio
+    env_file:
+      - path: .env
+        required: false   # No falla si .env no existe (útil en CI sin secrets)
     environment:
       - NODE_ENV=production
       - PORT=3000
       - API_HOST=0.0.0.0
       - BASE_PATH=/cotizar
-      - LICITOMETRO_API_URL=https://www.licitometro.ar/api
+      # URL de la API de LICITOMETRO.AR
+      # En el mismo servidor (Docker interno): LICITOMETRO_API_URL=http://<servicio-licitometro>:<puerto>/api
+      # En staging/dev o sin red interna: usar la URL pública (fallback)
+      - LICITOMETRO_API_URL=${LICITOMETRO_API_URL:-https://www.licitometro.ar/api}
+      # API Key para autenticar en endpoints de usuario de LICITOMETRO.AR (favoritos, etc.)
+      # El usuario marca favoritas en https://licitometro.ar/licitaciones
+      # cotizAR los lee via: GET <LICITOMETRO_API_URL>/favoritos con este Bearer token
+      - LICITOMETRO_API_KEY=${LICITOMETRO_API_KEY:-}
     volumes:
       - cotizar-bids:/app/bids
     networks:
       - cotizar-network
-      - licitometro_internal
+      - licitometro_internal   # Red compartida con LICITOMETRO.AR para comunicación interna directa
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/cotizar/health"]
       interval: 30s
@@ -51,4 +62,4 @@ networks:
   cotizar-network:
     name: cotizar-network
   licitometro_internal:
-    external: true
+    external: true   # Creada por el docker-compose de LICITOMETRO.AR — ambos servicios la comparten
