@@ -257,8 +257,38 @@
         /* Jurisdiction tag */
         .jurisdiction-tag { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; background: #e8f4fd; color: #0c5460; margin-bottom: 10px; }
 
-        /* Responsive tables — horizontal scroll on mobile */
-        .table-responsive { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        /* Tabla base mobile-first */
+        .table-mobile { width: 100%; border-collapse: collapse; }
+        .table-mobile th, .table-mobile td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
+        .table-mobile th { background: #fafafa; font-weight: 600; color: var(--text); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .table-mobile tr:hover { background: #fafbfc; }
+
+        /* Mobile: tabla → cards */
+        @media (max-width: 768px) {
+            .table-mobile thead { display: none; }
+            .table-mobile tbody tr {
+                display: flex; flex-direction: column;
+                border: 1px solid var(--border); border-radius: 10px;
+                margin-bottom: 12px; padding: 0; overflow: hidden;
+                background: var(--card-bg); box-shadow: 0 2px 6px rgba(0,0,0,0.07);
+            }
+            .table-mobile tbody tr:hover { background: #f8f9fa; }
+            .table-mobile td {
+                display: flex; justify-content: space-between; align-items: flex-start;
+                padding: 9px 14px; border-bottom: 1px solid #f0f0f0; font-size: 13px; gap: 8px;
+            }
+            .table-mobile td:last-child { border-bottom: none; background: #fafbfc; padding: 10px 14px; }
+            .table-mobile td[data-label]::before {
+                content: attr(data-label);
+                font-weight: 700; font-size: 10px; color: var(--text-muted);
+                min-width: 85px; text-transform: uppercase; letter-spacing: 0.5px;
+                padding-top: 2px; flex-shrink: 0;
+            }
+            .table-mobile td:first-child {
+                background: var(--accent); color: #fff; font-size: 13px; font-weight: 600;
+            }
+            .table-mobile td:first-child::before { color: rgba(255,255,255,0.65); }
+        }
 
         /* Extra-small phones (<480px) */
         @media (max-width: 480px) {
@@ -389,8 +419,7 @@
                     </div>
 
                     <div class="card">
-                        <div class="table-responsive">
-                        <table>
+                        <table class="table-mobile">
                             <thead>
                                 <tr>
                                     <th>Numero</th>
@@ -407,7 +436,6 @@
                                 <tr><td colspan="8"><div class="loading"><div class="spinner"></div>Cargando...</div></td></tr>
                             </tbody>
                         </table>
-                        </div>
                     </div>
                 </div>
 
@@ -424,8 +452,7 @@
                             <a href="https://licitometro.ar/licitaciones" target="_blank" style="color: var(--info);">licitometro.ar/licitaciones</a>
                             y aparecerán aquí para cotizar.
                         </p>
-                        <div class="table-responsive">
-                        <table>
+                        <table class="table-mobile">
                             <thead>
                                 <tr>
                                     <th>Numero</th>
@@ -442,7 +469,6 @@
                                 <tr><td colspan="8"><div class="loading"><div class="spinner"></div>Cargando favoritos...</div></td></tr>
                             </tbody>
                         </table>
-                        </div>
                     </div>
                 </div>
 
@@ -453,8 +479,7 @@
                             <span class="card-title">Mis Cotizaciones</span>
                             <button class="btn btn-primary btn-sm" onclick="openNewBidModal()">+ Nueva</button>
                         </div>
-                        <div class="table-responsive">
-                        <table>
+                        <table class="table-mobile">
                             <thead>
                                 <tr>
                                     <th>ID</th>
@@ -470,7 +495,6 @@
                                 <tr><td colspan="7"><div class="loading"><div class="spinner"></div>Cargando...</div></td></tr>
                             </tbody>
                         </table>
-                        </div>
                     </div>
                 </div>
 
@@ -1104,13 +1128,13 @@
             }
             document.getElementById('tenders-table').innerHTML = tenders.map(t => `
                 <tr style="cursor: pointer;" onclick="viewTender('${t.id}')">
-                    <td><strong>${t.number}</strong></td>
-                    <td>${t.title.substring(0, 45)}${t.title.length > 45 ? '...' : ''}</td>
-                    <td style="font-size: 12px;">${t.agency}</td>
-                    <td style="font-size: 12px;">${t.category}</td>
-                    <td>$${t.budget.toLocaleString('es-AR')}</td>
-                    <td>${new Date(t.closingDate).toLocaleDateString('es-AR')}</td>
-                    <td><span class="badge badge-${t.status}">${t.status}</span></td>
+                    <td data-label="Numero"><strong>${t.number}</strong></td>
+                    <td data-label="Titulo">${t.title.substring(0, 45)}${t.title.length > 45 ? '...' : ''}</td>
+                    <td data-label="Organismo" style="font-size: 12px;">${t.agency}</td>
+                    <td data-label="Categoria" style="font-size: 12px;">${t.category}</td>
+                    <td data-label="Presupuesto">$${t.budget.toLocaleString('es-AR')}</td>
+                    <td data-label="Cierre">${new Date(t.closingDate).toLocaleDateString('es-AR')}</td>
+                    <td data-label="Estado"><span class="badge badge-${t.status}">${t.status}</span></td>
                     <td onclick="event.stopPropagation();">
                         <button class="btn btn-sm btn-primary" onclick="openNewBidModal('${t.id}')">Cotizar</button>
                     </td>
@@ -1184,17 +1208,17 @@
                         ? `<br><small style="color:${urgency || 'var(--text-muted)'}">${daysLeft}d</small>` : '';
                     return `
                     <tr style="cursor:pointer;" onclick="viewTender('${t.id}')">
-                        <td><strong>${t.number}</strong></td>
-                        <td>${t.title.substring(0, 40)}${t.title.length > 40 ? '...' : ''}</td>
-                        <td style="font-size:12px;">${t.agency}</td>
-                        <td style="font-size:12px;">${t.region}</td>
-                        <td>$${t.budget.toLocaleString('es-AR')}</td>
-                        <td style="font-size:12px;">${new Date(t.closingDate).toLocaleDateString('es-AR')}${daysLabel}</td>
-                        <td><span class="badge badge-${t.status}">${t.status}</span></td>
-                        <td onclick="event.stopPropagation();" style="white-space:nowrap;">
+                        <td data-label="Numero"><strong>${t.number}</strong></td>
+                        <td data-label="Titulo">${t.title.substring(0, 40)}${t.title.length > 40 ? '...' : ''}</td>
+                        <td data-label="Organismo" style="font-size:12px;">${t.agency}</td>
+                        <td data-label="Jurisdiccion" style="font-size:12px;">${t.region}</td>
+                        <td data-label="Presupuesto">$${t.budget.toLocaleString('es-AR')}</td>
+                        <td data-label="Cierre" style="font-size:12px;">${new Date(t.closingDate).toLocaleDateString('es-AR')}${daysLabel}</td>
+                        <td data-label="Estado"><span class="badge badge-${t.status}">${t.status}</span></td>
+                        <td onclick="event.stopPropagation();">
                             <button class="btn btn-sm btn-primary" onclick="openNewBidModal('${t.id}')">Cotizar</button>
                             <button class="btn btn-sm btn-outline" onclick="analyzeLegalFromTender('${t.id}')">Legal</button>
-                            <button class="btn btn-sm btn-outline" onclick="analyzeCompetitiveFromTender('${t.id}')">Competencia</button>
+                            <button class="btn btn-sm btn-outline" onclick="analyzeCompetitiveFromTender('${t.id}')">Comp.</button>
                         </td>
                     </tr>`;
                 }).join('');
@@ -1243,12 +1267,12 @@
                         : `<small style="color:var(--text-muted);">${b.tenderId.substring(0, 12)}…</small>`;
                     return `
                     <tr>
-                        <td><strong style="font-size: 12px;">${b.id}</strong></td>
-                        <td style="font-size: 12px;">${tenderDisplay}</td>
-                        <td><span class="badge badge-${b.status}">${b.status}</span></td>
-                        <td>${b.commercialOffer?.total ? '$' + b.commercialOffer.total.toLocaleString('es-AR') : '-'}</td>
-                        <td>${b.competitivenessScore ? b.competitivenessScore + '%' : '-'}</td>
-                        <td style="font-size: 12px;">${new Date(b.createdAt).toLocaleDateString('es-AR')}</td>
+                        <td data-label="ID"><strong style="font-size: 12px;">${b.id}</strong></td>
+                        <td data-label="Licitacion" style="font-size: 12px;">${tenderDisplay}</td>
+                        <td data-label="Estado"><span class="badge badge-${b.status}">${b.status}</span></td>
+                        <td data-label="Total">${b.commercialOffer?.total ? '$' + b.commercialOffer.total.toLocaleString('es-AR') : '-'}</td>
+                        <td data-label="Puntaje">${b.competitivenessScore ? b.competitivenessScore + '%' : '-'}</td>
+                        <td data-label="Fecha" style="font-size: 12px;">${new Date(b.createdAt).toLocaleDateString('es-AR')}</td>
                         <td>
                             <button class="btn btn-sm btn-primary" onclick="openAnalysisModal('${b.id}')">Analizar</button>
                             <button class="btn btn-sm btn-outline" onclick="openCalculateModal('${b.id}')">Calcular</button>
