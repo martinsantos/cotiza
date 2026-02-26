@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#1a1a2e">
     <title>cotizAR - Licitometro.ar | Armador de Cotizaciones</title>
     <!-- __BASE_PATH__ -->
     <meta name="description" content="Armador de cotizaciones para licitaciones publicas argentinas. Genera ofertas competitivas con datos de LICITOMETRO.AR">
@@ -36,7 +37,7 @@
         .app { display: flex; min-height: 100vh; }
 
         /* Sidebar */
-        .sidebar { width: 260px; background: var(--sidebar-bg); color: #fff; position: fixed; height: 100vh; overflow-y: auto; display: flex; flex-direction: column; z-index: 100; }
+        .sidebar { width: 260px; background: var(--sidebar-bg); color: #fff; position: fixed; height: 100vh; overflow-y: auto; display: flex; flex-direction: column; z-index: 100; transition: width 0.25s ease; }
         .logo { padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.1); }
         .logo h1 { font-size: 22px; color: var(--primary); letter-spacing: 1px; }
         .logo h1 span { color: #fff; }
@@ -94,7 +95,7 @@
         .badge-submitted { background: #cce5ff; color: #004085; }
 
         /* Buttons */
-        .btn { padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; transition: all 0.2s; display: inline-flex; align-items: center; gap: 6px; }
+        .btn { padding: 10px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; transition: all 0.2s; display: inline-flex; align-items: center; gap: 6px; min-height: 36px; }
         .btn-primary { background: var(--primary); color: #fff; }
         .btn-primary:hover { background: var(--primary-dark); }
         .btn-secondary { background: #6c757d; color: #fff; }
@@ -102,7 +103,7 @@
         .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
         .btn-outline:hover { background: #f8f9fa; }
         .btn-success { background: var(--success); color: #fff; }
-        .btn-sm { padding: 5px 10px; font-size: 12px; }
+        .btn-sm { padding: 7px 12px; font-size: 12px; }
         .btn-lg { padding: 12px 24px; font-size: 15px; }
         .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
@@ -124,7 +125,7 @@
         .modal { background: var(--card-bg); border-radius: 10px; max-width: 700px; width: 95%; max-height: 80vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
         .modal-header { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; background: var(--card-bg); z-index: 1; border-radius: 10px 10px 0 0; }
         .modal-header h3 { font-size: 18px; }
-        .modal-close { background: none; border: none; font-size: 24px; cursor: pointer; color: var(--text-muted); padding: 0 4px; }
+        .modal-close { background: none; border: none; font-size: 24px; cursor: pointer; color: var(--text-muted); padding: 6px 10px; min-height: 40px; min-width: 40px; display: inline-flex; align-items: center; justify-content: center; }
         .modal-close:hover { color: var(--text); }
         .modal-body { padding: 24px; }
         .modal-footer { padding: 16px 24px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 10px; }
@@ -210,15 +211,29 @@
         /* Responsive */
         @media (max-width: 768px) {
             .sidebar { width: 0; overflow: hidden; }
-            .sidebar.open { width: 260px; }
+            .sidebar.open { width: 260px; overflow-y: auto; }
             .main { margin-left: 0; }
             .grid-2, .grid-3 { grid-template-columns: 1fr; }
             .detail-panel { width: 100%; }
             .stats-grid { grid-template-columns: repeat(2, 1fr); }
+            /* Content & card padding */
+            .content { padding: 15px; }
+            .card { padding: 15px; margin-bottom: 15px; }
+            .stat-card { padding: 15px; }
+            .stat-card .stat-value { font-size: 22px; }
+            /* Card header wraps on small screens */
+            .card-header { flex-wrap: wrap; gap: 8px; }
+            /* Modal as bottom-sheet */
+            .modal-overlay { padding: 0; align-items: flex-end; }
+            .modal { max-width: 100%; border-radius: 16px 16px 0 0; max-height: 92vh; }
+            /* Cost input: stack vertically */
+            .cost-input-group { flex-direction: column; align-items: flex-start; gap: 6px; }
+            .cost-input-group label { min-width: auto; }
+            .cost-input-group input { width: 100%; text-align: left; }
         }
 
         /* Hamburger menu (visible only on mobile) */
-        .hamburger { display: none; background: none; border: none; font-size: 22px; cursor: pointer; padding: 4px 8px; color: var(--text); line-height: 1; }
+        .hamburger { display: none; background: none; border: none; font-size: 22px; cursor: pointer; padding: 8px 10px; color: var(--text); line-height: 1; min-height: 44px; min-width: 44px; align-items: center; justify-content: center; }
         @media (max-width: 768px) {
             .hamburger { display: inline-flex; align-items: center; }
             .topbar { padding: 10px 15px; }
@@ -241,6 +256,23 @@
 
         /* Jurisdiction tag */
         .jurisdiction-tag { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; background: #e8f4fd; color: #0c5460; margin-bottom: 10px; }
+
+        /* Responsive tables — horizontal scroll on mobile */
+        .table-responsive { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+        /* Extra-small phones (<480px) */
+        @media (max-width: 480px) {
+            .stats-grid { grid-template-columns: 1fr; }
+            .stat-card { padding: 12px; }
+            .topbar h2 { font-size: 15px; }
+            /* Tabs scroll horizontally instead of wrapping */
+            .tabs { overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; padding-bottom: 2px; }
+            .tab { flex-shrink: 0; padding: 10px 14px; }
+            /* Form rows: single column */
+            .form-row { grid-template-columns: 1fr; }
+            /* Smaller modal header */
+            .modal-header h3 { font-size: 16px; }
+        }
     </style>
 </head>
 <body>
@@ -343,7 +375,7 @@
                 <!-- ====== LICITACIONES ====== -->
                 <div id="tenders" class="section">
                     <div style="display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap;">
-                        <input type="text" id="tender-search" placeholder="Buscar licitaciones..." style="flex: 1; min-width: 200px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px;">
+                        <input type="text" id="tender-search" placeholder="Buscar licitaciones..." style="flex: 1; min-width: 150px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px;">
                         <select id="tender-filter-status" style="padding: 9px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px;">
                             <option value="">Todos los estados</option>
                             <option value="abierta">Abiertas</option>
@@ -357,6 +389,7 @@
                     </div>
 
                     <div class="card">
+                        <div class="table-responsive">
                         <table>
                             <thead>
                                 <tr>
@@ -374,6 +407,7 @@
                                 <tr><td colspan="8"><div class="loading"><div class="spinner"></div>Cargando...</div></td></tr>
                             </tbody>
                         </table>
+                        </div>
                     </div>
                 </div>
 
@@ -390,6 +424,7 @@
                             <a href="https://licitometro.ar/licitaciones" target="_blank" style="color: var(--info);">licitometro.ar/licitaciones</a>
                             y aparecerán aquí para cotizar.
                         </p>
+                        <div class="table-responsive">
                         <table>
                             <thead>
                                 <tr>
@@ -407,6 +442,7 @@
                                 <tr><td colspan="8"><div class="loading"><div class="spinner"></div>Cargando favoritos...</div></td></tr>
                             </tbody>
                         </table>
+                        </div>
                     </div>
                 </div>
 
@@ -417,6 +453,7 @@
                             <span class="card-title">Mis Cotizaciones</span>
                             <button class="btn btn-primary btn-sm" onclick="openNewBidModal()">+ Nueva</button>
                         </div>
+                        <div class="table-responsive">
                         <table>
                             <thead>
                                 <tr>
@@ -433,6 +470,7 @@
                                 <tr><td colspan="7"><div class="loading"><div class="spinner"></div>Cargando...</div></td></tr>
                             </tbody>
                         </table>
+                        </div>
                     </div>
                 </div>
 
@@ -1704,6 +1742,7 @@
             }).join('');
 
             listEl.innerHTML = `
+                <div class="table-responsive">
                 <table>
                     <thead>
                         <tr>
@@ -1716,6 +1755,7 @@
                     </thead>
                     <tbody>${scraperRows || '<tr><td colspan="5" style="text-align:center; color:var(--text-muted)">Sin datos de configuracion. El backend puede no tener el endpoint /scraper-configs.</td></tr>'}</tbody>
                 </table>
+                </div>
                 <p style="margin-top: 12px; font-size: 12px; color: var(--text-muted);">
                     Fuente: <a href="https://www.licitometro.ar/api/health" target="_blank" style="color:var(--info)">licitometro.ar/api/health</a>
                     &nbsp;|&nbsp;
