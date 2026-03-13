@@ -207,23 +207,43 @@
         .pricing-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 14px; }
         .pricing-row.total { border-top: 2px solid var(--text); margin-top: 8px; padding-top: 12px; font-size: 18px; font-weight: 700; color: var(--primary); }
 
+        /* Table scroll wrapper - fixes mobile horizontal cut */
+        .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        .table-scroll table { min-width: 520px; }
+
         /* Responsive */
         @media (max-width: 768px) {
-            .sidebar { width: 0; overflow: hidden; }
+            .sidebar { width: 0; overflow: hidden; transition: width 0.25s ease; }
             .sidebar.open { width: 260px; }
             .main { margin-left: 0; }
             .grid-2, .grid-3 { grid-template-columns: 1fr; }
-            .detail-panel { width: 100%; }
+            .detail-panel { width: 100%; left: 0; }
             .stats-grid { grid-template-columns: repeat(2, 1fr); }
+            .content { padding: 15px; }
+            .detail-meta { grid-template-columns: 1fr; }
+            .cost-input-group { flex-wrap: wrap; }
+            .cost-input-group label { min-width: 100%; margin-bottom: 4px; }
+            .card { padding: 14px; }
+            .topbar { padding: 10px 12px; gap: 6px; }
+            .topbar h2 { font-size: 15px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .topbar-actions { gap: 4px; flex-shrink: 0; }
+            .topbar-actions .btn { font-size: 11px; padding: 5px 8px; white-space: nowrap; }
+            .topbar-actions .btn-text { display: none; }
+            .form-row { grid-template-columns: 1fr; }
+            .tabs { overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; }
+            .tab { white-space: nowrap; }
+            .modal { margin: 10px; max-height: 90vh; }
+            .modal-overlay { padding-top: 0; align-items: center; }
+        }
+        @media (max-width: 480px) {
+            .stats-grid { grid-template-columns: 1fr; }
+            .back-btn { display: none; }
         }
 
         /* Hamburger menu (visible only on mobile) */
         .hamburger { display: none; background: none; border: none; font-size: 22px; cursor: pointer; padding: 4px 8px; color: var(--text); line-height: 1; }
         @media (max-width: 768px) {
             .hamburger { display: inline-flex; align-items: center; }
-            .topbar { padding: 10px 15px; }
-            .topbar h2 { font-size: 16px; }
-            .topbar-actions .btn-text { display: none; }
         }
 
         /* Sidebar overlay backdrop on mobile */
@@ -307,7 +327,7 @@
                 <button class="hamburger" onclick="toggleSidebar()" aria-label="Menu">&#9776;</button>
                 <h2 id="page-title">Dashboard</h2>
                 <div class="topbar-actions">
-                    <a href="/licitaciones" class="btn btn-outline btn-sm" style="text-decoration:none;color:inherit;">← Licitometro</a>
+                    <a href="/licitaciones" class="btn btn-outline btn-sm back-btn" style="text-decoration:none;color:inherit;">← Licitometro</a>
                     <button class="btn btn-outline btn-sm" onclick="syncFromLicitometro()">Sync</button>
                     <button class="btn btn-primary btn-sm" onclick="openNewBidModal()">+ Nueva Cotizacion</button>
                 </div>
@@ -347,9 +367,10 @@
                         <input type="text" id="tender-search" placeholder="Buscar licitaciones..." style="flex: 1; min-width: 200px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px;">
                         <select id="tender-filter-status" style="padding: 9px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px;">
                             <option value="">Todos los estados</option>
-                            <option value="abierta">Abiertas</option>
-                            <option value="cerrada">Cerradas</option>
-                            <option value="adjudicada">Adjudicadas</option>
+                            <option value="vigente">Vigentes</option>
+                            <option value="vencida">Vencidas</option>
+                            <option value="prorrogada">Prorrogadas</option>
+                            <option value="archivada">Archivadas</option>
                         </select>
                         <select id="tender-filter-category" style="padding: 9px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px;">
                             <option value="">Todas las categorias</option>
@@ -358,6 +379,7 @@
                     </div>
 
                     <div class="card">
+                        <div class="table-scroll">
                         <table>
                             <thead>
                                 <tr>
@@ -375,6 +397,7 @@
                                 <tr><td colspan="8"><div class="loading"><div class="spinner"></div>Cargando...</div></td></tr>
                             </tbody>
                         </table>
+                        </div>
                     </div>
                 </div>
 
@@ -391,6 +414,7 @@
                             <a href="https://licitometro.ar/licitaciones" target="_blank" style="color: var(--info);">licitometro.ar/licitaciones</a>
                             y aparecerán aquí para cotizar.
                         </p>
+                        <div class="table-scroll">
                         <table>
                             <thead>
                                 <tr>
@@ -408,6 +432,7 @@
                                 <tr><td colspan="8"><div class="loading"><div class="spinner"></div>Cargando favoritos...</div></td></tr>
                             </tbody>
                         </table>
+                        </div>
                     </div>
                 </div>
 
@@ -418,6 +443,7 @@
                             <span class="card-title">Mis Cotizaciones</span>
                             <button class="btn btn-primary btn-sm" onclick="openNewBidModal()">+ Nueva</button>
                         </div>
+                        <div class="table-scroll">
                         <table>
                             <thead>
                                 <tr>
@@ -434,6 +460,7 @@
                                 <tr><td colspan="7"><div class="loading"><div class="spinner"></div>Cargando...</div></td></tr>
                             </tbody>
                         </table>
+                        </div>
                     </div>
                 </div>
 
@@ -586,10 +613,11 @@
                             <div class="form-group">
                                 <label>Estado</label>
                                 <select id="sync-estado">
-                                    <option value="abierta">Abiertas</option>
+                                    <option value="vigente">Vigentes</option>
                                     <option value="">Todas</option>
-                                    <option value="cerrada">Cerradas</option>
-                                    <option value="adjudicada">Adjudicadas</option>
+                                    <option value="vencida">Vencidas</option>
+                                    <option value="prorrogada">Prorrogadas</option>
+                                    <option value="archivada">Archivadas</option>
                                 </select>
                             </div>
                         </div>
