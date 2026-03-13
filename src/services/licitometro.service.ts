@@ -175,7 +175,7 @@ export class LicitometroService {
   async search(params: LicitometroSearchParams): Promise<{ tenders: Tender[]; total: number }> {
     try {
       // Params reales de la API LICITOMETRO (FastAPI)
-      const response = await this.client.get<LicitometroResponse>('/licitaciones', {
+      const response = await this.client.get<LicitometroResponse>('/licitaciones/', {
         params: {
           q: params.q,
           estado: params.estado,          // estado: vigente/vencida/prorrogada/archivada
@@ -201,7 +201,7 @@ export class LicitometroService {
 
   async getById(id: string): Promise<Tender | null> {
     try {
-      const response = await this.client.get<LicitometroTender>(`/licitaciones/${id}`);
+      const response = await this.client.get<LicitometroTender>(`/licitaciones/${id}/`);
       return this.mapTenderFromLicitometro(response.data);
     } catch (error) {
       console.error(`Error obteniendo licitacion ${id} de LICITOMETRO:`, error);
@@ -313,7 +313,7 @@ export class LicitometroService {
       // Paso 2: Fetch full tender data para cada ID (máximo 20 en paralelo)
       const batchIds = ids.slice(0, 20);
       const tenderPromises = batchIds.map(id =>
-        this.client.get<LicitometroTender>(`/licitaciones/${id}`)
+        this.client.get<LicitometroTender>(`/licitaciones/${id}/`)
           .then(r => this.mapTenderFromLicitometro(r.data))
           .catch(() => null)
       );
