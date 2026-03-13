@@ -579,7 +579,7 @@ export function startServer(port?: number): void {
 
     // Auto-sync al arrancar (no bloquea el servidor)
     const runSync = (label: string) => {
-      licitometroService.sync({ estado: 'abierta', limit: 100 })
+      licitometroService.sync({ estado: 'vigente', limit: 100 })
         .then(result => console.log(`[${label}] Sync: ${result.message}`))
         .catch(err => console.warn(`[${label}] Sync falló:`, err?.message));
     };
