@@ -6,13 +6,13 @@ on:
   workflow_dispatch:
 
 env:
-  DEPLOY_PORT: "3001"
   IMAGE: ghcr.io/martinsantos/cotiza:latest
+  LICITOMETRO_DIR: /opt/licitometro
 
 jobs:
   deploy:
     name: Build & deploy
-    runs-on: self-hosted          # corre en el VPS, cero créditos de GitHub
+    runs-on: self-hosted          # corre en el VPS, cero creditos de GitHub
     concurrency:
       group: production-deploy
       cancel-in-progress: true
@@ -20,17 +20,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Build en el propio VPS – no necesita push a GHCR ni pull posterior
+      # Build en el propio VPS desde el workspace del runner
       - name: Build Docker image
-        run: docker build -t ${{ env.IMAGE }} .
+        run: docker build -t "$IMAGE" .
 
-      # deploy.sh ya tiene: network, force-recreate, healthcheck, nginx
+      # Deploy via el compose de licitometro (donde vive cotizar-api en produccion)
       - name: Deploy
-        env:
-          DEPLOY_PORT: ${{ env.DEPLOY_PORT }}
-          IMAGE: ${{ env.IMAGE }}
         run: |
-          DEPLOY_DIR="$GITHUB_WORKSPACE" \
-          DEPLOY_PORT="$DEPLOY_PORT" \
-          IMAGE="$IMAGE" \
-            bash scripts/deploy.sh --no-pull
+          cd "$LICITOMETRO_DIR"
+          docker compose -f docker-compose.prod.yml up --force-recreate --no-deps -d cotizar-api
+
+      # Health check
+      - name: Health check
+        run: |
+          for i in $(seq 1 15); do
+            resp=$(curl -sf --max-time 3 "http://localhost:3001/cotizar/health" 2>/dev/null || true)
+            if echo "$resp" | grep -q '"status"'; then
+              echo "Health check OK en intento $i"
+              exit 0
+            fi
+            echo "Intento $i/15 - esperando..."
+            sleep 5
+          done
+          echo "Health check no respondio, verificar logs:"
+          docker logs licitometro-cotizar-api-1 --tail 20 2>/dev/null || true
