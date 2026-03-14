@@ -1,11 +1,44 @@
 import { Tender, TenderTracking, TrackingMilestone, Alert } from '../types/index.js';
+import { readFileSync, writeFileSync, existsSync } from 'fs';
+
+const TRACKING_FILE = '/app/bids/tracking.json';
 
 export class TrackingService {
   private trackingData: Map<string, TenderTracking> = new Map();
 
+  constructor() {
+    this.loadFromDisk();
+  }
+
+  private loadFromDisk(): void {
+    try {
+      if (existsSync(TRACKING_FILE)) {
+        const raw = readFileSync(TRACKING_FILE, 'utf-8');
+        const obj: Record<string, TenderTracking> = JSON.parse(raw);
+        for (const [key, value] of Object.entries(obj)) {
+          this.trackingData.set(key, value);
+        }
+      }
+    } catch (err) {
+      console.error('TrackingService: error loading from disk:', err);
+    }
+  }
+
+  private saveToDisk(): void {
+    try {
+      const obj: Record<string, TenderTracking> = {};
+      this.trackingData.forEach((value, key) => {
+        obj[key] = value;
+      });
+      writeFileSync(TRACKING_FILE, JSON.stringify(obj, null, 2), 'utf-8');
+    } catch (err) {
+      console.error('TrackingService: error saving to disk:', err);
+    }
+  }
+
   async createTracking(tender: Tender): Promise<TenderTracking> {
     const milestones = this.generateMilestones(tender);
-    
+
     const tracking: TenderTracking = {
       tenderId: tender.id,
       milestones,
@@ -13,6 +46,7 @@ export class TrackingService {
     };
 
     this.trackingData.set(tender.id, tracking);
+    this.saveToDisk();
     return tracking;
   }
 
@@ -84,6 +118,7 @@ export class TrackingService {
       milestone.completed = completed;
       if (notes) milestone.notes = notes;
       this.trackingData.set(tenderId, tracking);
+      this.saveToDisk();
     }
 
     return milestone || null;
@@ -102,7 +137,6 @@ export class TrackingService {
       const milestoneDate = new Date(milestone.date);
       const daysUntil = Math.ceil((milestoneDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 
-      // Deadline alerts
       if (daysUntil >= 0 && daysUntil <= 7) {
         alerts.push({
           type: 'deadline',
@@ -112,11 +146,10 @@ export class TrackingService {
         });
       }
 
-      // Expired alerts
       if (daysUntil < 0) {
         alerts.push({
           type: 'result',
-          message: `${milestone.name} ya passedó`,
+          message: `${milestone.name} ya pasó`,
           date: milestone.date,
           read: false
         });
@@ -128,7 +161,7 @@ export class TrackingService {
 
   async getAllAlerts(): Promise<Map<string, Alert[]>> {
     const allAlerts = new Map<string, Alert[]>();
-    
+
     this.trackingData.forEach((tracking, tenderId) => {
       allAlerts.set(tenderId, this.getAlertsSync(tracking));
     });
@@ -167,6 +200,7 @@ export class TrackingService {
     if (alertIndex >= 0 && alertIndex < alerts.length) {
       alerts[alertIndex].read = true;
       this.trackingData.set(tenderId, tracking);
+      this.saveToDisk();
       return true;
     }
 
@@ -191,7 +225,7 @@ export class TrackingService {
     const past = tracking.milestones.filter(m => new Date(m.date) < now || m.completed);
     const upcoming = tracking.milestones.filter(m => new Date(m.date) >= now && !m.completed);
 
-    const daysUntilClose = tracking.milestones.find(m => 
+    const daysUntilClose = tracking.milestones.find(m =>
       m.name === 'Presentacion de Ofertas'
     );
 
@@ -226,7 +260,6 @@ export class TrackingService {
       const daysUntil = Math.ceil((milestoneDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 
       if (daysUntil < 0) {
-        // Check if extended
         if (milestone.notes?.includes('prórroga')) {
           extended.push(`${milestone.name} extendido`);
         }

@@ -69,8 +69,9 @@ export class LegalService {
       jurisdiction: tender.region || 'Nacional',
       requiredClauses,
       complianceChecklist,
-      recommendations
-    };
+      recommendations,
+      disclaimer: 'Este análisis es una guía basada en plantillas del marco normativo argentino. No constituye asesoramiento jurídico. Consulte con un profesional para casos específicos.'
+    } as any;
   }
 
   private detectServiceType(tender: Tender): string {

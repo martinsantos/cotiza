@@ -1,12 +1,46 @@
 import { PatternBundle, PatternSection, PricePattern } from '../types/index.js';
 import { v4 as uuidv4 } from 'uuid';
+import { readFileSync, writeFileSync, existsSync } from 'fs';
+
+const PATTERNS_FILE = '/app/bids/patterns.json';
 
 export class PatternService {
   private patterns: Map<string, PatternBundle> = new Map();
   private searchIndex: Map<string, string[]> = new Map();
 
   constructor() {
-    this.initializeSamplePatterns();
+    const loaded = this.loadFromDisk();
+    if (!loaded) {
+      // First run: seed with sample patterns
+      this.initializeSamplePatterns();
+      this.saveToDisk();
+    }
+  }
+
+  private loadFromDisk(): boolean {
+    try {
+      if (existsSync(PATTERNS_FILE)) {
+        const raw = readFileSync(PATTERNS_FILE, 'utf-8');
+        const arr: PatternBundle[] = JSON.parse(raw);
+        arr.forEach(pattern => {
+          this.patterns.set(pattern.id, pattern);
+          this.indexPattern(pattern);
+        });
+        return true;
+      }
+    } catch (err) {
+      console.error('PatternService: error loading from disk:', err);
+    }
+    return false;
+  }
+
+  private saveToDisk(): void {
+    try {
+      const arr = Array.from(this.patterns.values());
+      writeFileSync(PATTERNS_FILE, JSON.stringify(arr, null, 2), 'utf-8');
+    } catch (err) {
+      console.error('PatternService: error saving to disk:', err);
+    }
   }
 
   private initializeSamplePatterns() {
@@ -249,6 +283,7 @@ export class PatternService {
 
     this.patterns.set(newPattern.id, newPattern);
     this.indexPattern(newPattern);
+    this.saveToDisk();
     return newPattern;
   }
 
@@ -262,6 +297,7 @@ export class PatternService {
         pattern.successRate = (pattern.successRate * (pattern.usageCount - 1)) / pattern.usageCount;
       }
       this.patterns.set(patternId, pattern);
+      this.saveToDisk();
     }
   }
 

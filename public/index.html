@@ -1563,7 +1563,7 @@
             if (btn) { btn.disabled = true; btn.textContent = 'Sincronizando...'; }
             try {
                 const params = {
-                    estado: document.getElementById('sync-estado')?.value || 'abierta',
+                    estado: document.getElementById('sync-estado')?.value || 'vigente',
                     jurisdiccion: document.getElementById('sync-jurisdiccion')?.value || undefined,
                     rubro: document.getElementById('sync-rubro')?.value || undefined,
                     limit: 50
