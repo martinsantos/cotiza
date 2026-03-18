@@ -187,6 +187,17 @@ router.post('/api/bids', async (req: Request, res: Response) => {
   }
 });
 
+// Update bid data (partial)
+router.put('/api/bids/:id', async (req: Request, res: Response) => {
+  try {
+    const updated = await bidService.update(req.params.id, req.body);
+    if (!updated) return res.status(404).json({ error: 'Bid not found' });
+    res.json(updated);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to update bid' });
+  }
+});
+
 // Analyze bid
 router.post('/api/bids/:id/analyze', async (req: Request, res: Response) => {
   try {
