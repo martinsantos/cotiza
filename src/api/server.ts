@@ -111,6 +111,25 @@ router.get('/api/tenders/meta/regions', async (_req: Request, res: Response) => 
   }
 });
 
+// Create or upsert a tender
+router.post('/api/tenders', async (req: Request, res: Response) => {
+  try {
+    const data = req.body;
+    if (!data || !data.id) {
+      return res.status(400).json({ error: 'id is required' });
+    }
+    const existing = await tenderService.getById(data.id);
+    if (existing) {
+      const updated = await tenderService.update(data.id, data);
+      return res.json(updated);
+    }
+    const tender = await tenderService.create(data);
+    res.status(201).json(tender);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to create tender' });
+  }
+});
+
 // Get tender by ID (after all specific /api/tenders/* routes)
 router.get('/api/tenders/:id', async (req: Request, res: Response) => {
   try {
